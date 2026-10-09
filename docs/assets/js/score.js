@@ -1,16 +1,13 @@
 /**
- * score.js — 曲谱详情页入口（score.html?id=<曲谱ID>）
+ * score.js — 曲谱详情页入口
  *
- * 流程：读地址里的 ID → 取数据 → 渲染抬头 → simple-notation 画简谱
- *       → abcjs 播放器接管工具栏。
+ * 流程：读地址里的 ID → 取数据 → 渲染抬头 → 渲染简谱（notation.js）
+ *       → abcjs 播放器接管工具栏 → rAF 驱动播放进度三态
  */
 
 import { loadScore, getScoreIdFromUrl, scoreTitle, scoreComposer } from './data.js';
 import { ScorePlayer } from './player.js';
-
-/** simple-notation 以 ES module 形式从 CDN 动态加载 */
-const SIMPLE_NOTATION_URL =
-  'https://cdn.jsdelivr.net/npm/simple-notation@1.0.27/dist/simple-notation.js';
+import { parseNotation, renderNotation, buildTimeline, startProgress } from './notation.js';
 
 const els = {
   status: document.getElementById('page-status'),
@@ -27,6 +24,9 @@ const els = {
   playStatus: document.getElementById('play-status'),
 };
 
+let noteEls = [];   // 每个音符的 <g>，序号与 timeline 对齐
+let timeline = [];  // 每个音符的 [start, end)，单位秒
+
 function setStatus(node, message, isError = false) {
   node.textContent = message;
   node.classList.toggle('error', isError);
@@ -37,7 +37,7 @@ function fail(message) {
   setStatus(els.status, message, true);
 }
 
-/** 渲染抬头：标题、副标题、作曲者、难度与标签 */
+/** 抬头：标题、副标题、署名、难度与标签 */
 function renderHeader(score) {
   const title = scoreTitle(score);
   const composer = scoreComposer(score);
@@ -45,43 +45,45 @@ function renderHeader(score) {
   document.title = `${title} · 木琴曲谱库`;
   els.title.textContent = title;
 
-  if (score.subtitle) {
-    els.subtitle.textContent = score.subtitle;
-  } else {
-    els.subtitle.hidden = true;
-  }
+  if (score.subtitle) els.subtitle.textContent = score.subtitle;
+  else els.subtitle.hidden = true;
 
-  if (composer) {
-    els.byline.textContent = composer;
-  } else {
-    els.byline.hidden = true;
-  }
+  if (composer) els.byline.textContent = composer;
+  else els.byline.hidden = true;
 
   const tags = [];
   if (score.difficulty) tags.push(String(score.difficulty));
   if (Array.isArray(score.tags)) tags.push(...score.tags);
-  tags.forEach((t) => {
+  tags.forEach((tag) => {
     const chip = document.createElement('span');
     chip.className = 'chip';
-    chip.textContent = String(t);
+    chip.textContent = String(tag);
     els.tags.append(chip);
   });
 }
 
-/** 用 simple-notation 渲染简谱（数据即 jianpu 块，原样透传给引擎） */
-async function renderNotation(score) {
-  const { SimpleNotation } = await import(SIMPLE_NOTATION_URL);
-  const notation = new SimpleNotation(els.container, { resize: true });
-  notation.loadData(score.jianpu);
+/**
+ * 渲染简谱，并算出每个音符的时间区间。
+ * 时间轴按简谱自己的速度和拍数算，abcjs 那边用同样的 Q: 保证一致。
+ */
+function renderScore(score) {
+  const parsed = parseNotation(score.notation || '');
+  const rendered = renderNotation(els.container, parsed);
+  noteEls = rendered.noteEls;
+
+  const bpm = parsed.bpm || (score.abc && score.abc.tempo) || 120;
+  timeline = buildTimeline(parsed.notes, bpm);
+  return parsed;
 }
 
-/** 把结构化 ABC 字段拼成 abcjs 可读的谱面字符串 */
-function buildAbc(abc, program) {
+/** 把结构化字段拼成 abcjs 谱面。Q: 是必须的——否则播放速度与简谱标注不一致，进度就白做了 */
+function buildAbc(abc, title, program) {
   return [
     'X:1',
-    `T:${abc.title || ''}`,
+    `T:${title || ''}`,
     `M:${abc.meter || '4/4'}`,
     `L:${abc.length || '1/4'}`,
+    `Q:1/4=${abc.tempo || 120}`,
     `K:${abc.key || 'C'}`,
     `%%MIDI program ${program}`,
     abc.body || '',
@@ -94,7 +96,7 @@ function setControlsEnabled(enabled) {
 
 async function initPlayer(score) {
   const player = new ScorePlayer({
-    buildAbc: (program) => buildAbc(score.abc || {}, program),
+    buildAbc: (program) => buildAbc(score.abc || {}, score.title, program),
     onStatus: (message, level) => setStatus(els.playStatus, message, level === 'error'),
   });
 
@@ -109,12 +111,12 @@ async function initPlayer(score) {
 
   setControlsEnabled(true);
   setStatus(els.playStatus, '音频就绪，点击播放');
+  startProgress(noteEls, timeline, () => (player.state === 'idle' ? null : player.currentTime()));
 
   els.instrument.addEventListener('change', (event) => {
     const option = event.target.selectedOptions[0];
     const label = option ? option.textContent.trim() : '';
     player.setProgram(event.target.value);
-    // setProgram 已给出一条状态，这里覆盖成带音色名的提示，便于确认切换已生效
     if (label) setStatus(els.playStatus, `音色已切换为「${label}」，点击播放生效`);
   });
   els.play.addEventListener('click', () => { player.play(); });
@@ -140,11 +142,10 @@ async function main() {
 
   renderHeader(score);
   els.article.hidden = false;
-  setStatus(els.status, '');
   els.status.hidden = true;
 
   try {
-    await renderNotation(score);
+    renderScore(score);
   } catch (err) {
     console.error(err);
     setStatus(els.playStatus, `简谱渲染失败：${err.message}`, true);

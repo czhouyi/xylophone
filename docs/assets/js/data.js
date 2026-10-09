@@ -71,10 +71,10 @@ export function scoreUrl(id) {
 
 /** 取展示用标题（数据缺失时回退到 ID） */
 export function scoreTitle(score) {
-  return (score && score.jianpu && score.jianpu.info && score.jianpu.info.title) || score.id;
+  return (score && score.title) || (score && score.id) || '';
 }
 
 /** 取展示用作曲者/改编者 */
 export function scoreComposer(score) {
-  return (score && score.jianpu && score.jianpu.info && score.jianpu.info.composer) || '';
+  return (score && score.composer) || '';
 }

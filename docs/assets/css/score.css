@@ -50,6 +50,42 @@
   box-shadow: var(--shadow);
 }
 
+/* ---------- 简谱（notation.js 渲染的 SVG） ---------- */
+
+.nt-score {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 2px;
+}
+
+.nt-line { display: block; overflow: visible; }
+
+.nt-digit {
+  font-family: Georgia, "Times New Roman", "Songti SC", serif;
+  fill: var(--text);
+}
+.nt-rest { fill: var(--text-muted); }
+.nt-accidental { fill: var(--text); }
+.nt-dot { fill: var(--text); }
+.nt-tie { fill: var(--text); }
+
+.nt-underline,
+.nt-barline { stroke: var(--text); stroke-width: 1.2; }
+.nt-barfill { fill: var(--text); }
+
+.nt-lyric { fill: var(--text-muted); }
+
+/* 进度三态：未播放是默认，已播放打底，正在播放高亮 */
+.nt-note .nt-mark { fill: transparent; }
+.nt-note.past .nt-mark { fill: var(--nt-past); }
+.nt-note.current .nt-mark { fill: var(--nt-current); }
+.nt-note.current .nt-digit,
+.nt-note.current .nt-dot,
+.nt-note.current .nt-tie,
+.nt-note.current .nt-accidental { fill: var(--nt-current-ink); }
+.nt-note.current .nt-underline { stroke: var(--nt-current-ink); }
+
 /* ---------- 播放工具栏 ---------- */
 
 .toolbar {

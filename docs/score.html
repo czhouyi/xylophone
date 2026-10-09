@@ -5,8 +5,6 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>曲谱详情 · 木琴曲谱库</title>
   <meta name="description" content="木琴简谱曲谱详情：在线查看简谱并试听。">
-  <!-- simple-notation 渲染样式（第三方 CDN） -->
-  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/simple-notation@1.0.27/dist/style.css">
   <link rel="stylesheet" href="assets/css/base.css">
   <link rel="stylesheet" href="assets/css/score.css">
 </head>
@@ -32,8 +30,8 @@
         <div id="score-tags" class="score-tags"></div>
       </header>
 
-      <!-- simple-notation 简谱渲染容器 -->
-      <div id="notation-container" class="notation-card"></div>
+      <!-- 简谱渲染容器（notation.js 会在这里生成 SVG） -->
+      <div id="notation-container" class="notation-card nt-score"></div>
 
       <div class="toolbar">
         <div class="field">
@@ -61,7 +59,7 @@
   </main>
 
   <footer class="site-footer">
-    <div class="wrap">木琴曲谱库 · 简谱渲染 simple-notation · 音频合成 abcjs</div>
+    <div class="wrap">木琴曲谱库 · 简谱渲染自研 · 音频合成 abcjs</div>
   </footer>
 
   <!-- abcjs（音频合成，提供全局 ABCJS） -->

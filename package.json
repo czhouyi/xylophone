@@ -1,0 +1,7 @@
+{
+  "name": "xylophone",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "description": "木琴简谱曲谱库：纯静态站点（GitHub Pages），简谱自研渲染 + abcjs 播放"
+}

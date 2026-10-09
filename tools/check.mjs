@@ -15,6 +15,12 @@ import { createServer } from 'node:http';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
+// 复用站点自己的解析器做校验，保证"校验的"就是"页面渲染的"
+import {
+  parseNotation, renderNotation, buildTimeline, paintProgress, resetProgress,
+} from '../docs/assets/js/notation.js';
+import { ScorePlayer } from '../docs/assets/js/player.js';
+
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const docsDir = path.join(root, 'docs');
 const scoresDir = path.join(docsDir, 'data', 'scores');
@@ -49,24 +55,46 @@ for (const file of scoreFiles) {
   const problems = [];
   if (!data.id) problems.push('missing id');
   if (data.id !== path.basename(file, '.json')) problems.push('id != filename');
-  if (!data.jianpu || typeof data.jianpu.score !== 'string') problems.push('missing jianpu.score');
-  if (!data.jianpu || !data.jianpu.info || !data.jianpu.info.title) problems.push('missing jianpu.info.title');
+  if (typeof data.notation !== 'string' || !data.notation.trim()) problems.push('missing notation');
+  if (!data.title) problems.push('missing title');
   if (!data.abc || !data.abc.body) problems.push('missing abc.body');
 
-  if (problems.length) fail(`${file}: ${problems.join(', ')}`);
-  else {
-    const cps = [...data.jianpu.info.title].map((c) => c.codePointAt(0).toString(16)).join(' ');
-    ok(`${file}: fields ok (title=${cps}, ${data.jianpu.score.split('\n').length} score lines)`);
-
-    // 歌词要与音符逐字对应（'-' 是占位），不齐会导致歌词错位
-    const notes = String(data.jianpu.score).replace(/\s/g, '').split(/[|,]/).filter(Boolean);
-    const lyric = [...String(data.jianpu.lyric || '').replace(/\s/g, '')];
-    if (lyric.length !== notes.length) {
-      console.log(`warn  ${file}: 歌词 ${lyric.length} 字 vs 音符 ${notes.length} 个，可能错位`);
-    } else {
-      ok(`${file}: 歌词与音符逐字对齐 (${notes.length})`);
-    }
+  if (problems.length) {
+    fail(`${file}: ${problems.join(', ')}`);
+    continue;
   }
+
+  let parsed;
+  try {
+    parsed = parseNotation(data.notation);
+  } catch (err) {
+    fail(`${file}: notation 解析失败 -> ${err.message}`);
+    continue;
+  }
+  if (!parsed.notes.length) {
+    fail(`${file}: notation 里没有解析出音符`);
+    continue;
+  }
+  if (!parsed.bpm) console.log(`warn  ${file}: notation 未标速度（回退到 abc.tempo）`);
+
+  // 速度必须两边一致，否则播放进度高亮会和实际发声脱节
+  if (parsed.bpm && data.abc.tempo && parsed.bpm !== data.abc.tempo) {
+    fail(`${file}: notation bpm ${parsed.bpm} 与 abc.tempo ${data.abc.tempo} 不一致`);
+  } else if (parsed.bpm && data.abc.tempo) {
+    ok(`${file}: 速度一致 (bpm=${parsed.bpm})`);
+  }
+
+  // 每一行歌词的槽位数必须等于该行可唱音符数（休止符 0 不占歌词位）
+  let mismatched = 0;
+  for (const line of parsed.lines) {
+    if (!line.lyric.length) continue;
+    const singable = line.items.filter((it) => it.kind === 'note' && it.pitch !== '0').length;
+    if (line.lyric.length !== singable) mismatched += 1;
+  }
+  if (mismatched) fail(`${file}: ${mismatched} 行歌词与音符数不匹配`);
+  else ok(`${file}: 歌词与音符逐行对齐`);
+
+  ok(`${file}: ${parsed.notes.length} 个音符 / ${parsed.lines.length} 行 / key=${parsed.key || '-'}`);
 }
 
 // ---------- 2. index.json 一致性 ----------
@@ -116,6 +144,157 @@ for (const file of readdirSync(jsDir).filter((f) => f.endsWith('.js'))) {
     if (hosts.length) ok(`${file} -> #${id} present in ${hosts.join(', ')}`);
     else fail(`${file} -> #${id} not found in any page`);
   }
+}
+
+// ---------- 3c. 音色切换：GM program 编号解析 ----------
+// 钢琴编号是 0（falsy），历史 bug 就出在用 || 回退，导致"选钢琴没反应"。
+
+const player = new ScorePlayer({ buildAbc: () => '' });
+for (const [input, expected, why] of [
+  ['0', 0, '钢琴编号 0 不能被当成 falsy 吞掉'],
+  ['12', 12, '马林巴'],
+  ['13', 13, '木琴'],
+  ['abc', 13, '非法输入回退到默认木琴'],
+  ['999', 13, '越界回退到默认木琴'],
+]) {
+  player.setProgram(input);
+  if (player.program === expected) ok(`音色 program ${input} -> ${player.program}（${why}）`);
+  else fail(`音色 program ${input} -> ${player.program}，期望 ${expected}（${why}）`);
+}
+
+// 下拉选项的 value 必须是合法的 GM 编号，且默认项与 player.js 的默认音色一致
+const scoreHtml = readFileSync(path.join(docsDir, 'score.html'), 'utf8');
+const options = [...scoreHtml.matchAll(/<option value="(\d+)"(\s+selected)?>/g)]
+  .map((m) => ({ value: Number(m[1]), selected: !!m[2] }));
+if (!options.length) fail('score.html: 音色下拉没有选项');
+else {
+  const bad = options.filter((o) => !Number.isInteger(o.value) || o.value < 0 || o.value > 127);
+  if (bad.length) fail(`score.html: 音色选项编号非法（${bad.map((o) => o.value).join(',')}）`);
+  else ok(`score.html: ${options.length} 个音色选项编号都是合法 GM 值`);
+
+  const def = options.find((o) => o.selected) || options[0];
+  const fresh = new ScorePlayer({ buildAbc: () => '' });
+  if (def.value === fresh.program) ok(`score.html: 默认音色 ${def.value} 与 player.js 默认一致`);
+  else fail(`score.html: 默认音色 ${def.value} 与 player.js 默认 ${fresh.program} 不一致`);
+}
+
+// ---------- 3c-2. 播放状态机：暂停后应从暂停处继续 ----------
+// 用假时钟直接驱动 player.js，不碰真实音频。
+
+{
+  const p = new ScorePlayer({ buildAbc: () => '' });
+  let clock = 0;
+  p.audioContext = { state: 'running', resume: async () => {}, get currentTime() { return clock; } };
+  p.synth = { start() {}, stop() {}, pause() {}, resume() {} };
+  p.primed = true;
+
+  await p.play();
+  clock = 3;
+  if (Math.abs(p.currentTime() - 3) < 1e-9) ok('播放：位置跟随时钟');
+  else fail(`播放：位置 ${p.currentTime()}，期望 3`);
+
+  p.pause();
+  clock = 10; // 暂停期间时钟照常走
+  if (Math.abs(p.currentTime() - 3) < 1e-9) ok('暂停：位置冻结在 3s');
+  else fail(`暂停：位置 ${p.currentTime()}，期望冻结在 3`);
+
+  await p.play(); // 继续
+  clock = 11;
+  if (Math.abs(p.currentTime() - 4) < 1e-9) ok('暂停后继续：从 3s 处接着放（不是从头）');
+  else fail(`暂停后继续：位置 ${p.currentTime()}，期望 4（从 3s 接着放）`);
+
+  p.stop();
+  if (p.currentTime() === 0 && p.state === 'idle') ok('停止：位置归零且回到 idle');
+  else fail(`停止：位置 ${p.currentTime()}，state=${p.state}`);
+}
+
+// ---------- 3d. 渲染结构 + 播放进度三态（纯 Node 驱动真实代码） ----------
+// notation.js 只用到极少的 DOM API，给它一个最小桩就能在 Node 里跑完整渲染，
+// 这样这些不变量不必依赖浏览器就能回归。
+
+class StubNode {
+  constructor(name) {
+    this.nodeName = name;
+    this.childNodes = [];
+    this.attrs = {};
+    this._text = '';
+    this._classes = new Set();
+    this.classList = {
+      add: (...names) => names.forEach((n) => this._classes.add(n)),
+      remove: (...names) => names.forEach((n) => this._classes.delete(n)),
+      contains: (n) => this._classes.has(n),
+    };
+  }
+  setAttribute(key, value) {
+    this.attrs[key] = String(value);
+    if (key === 'class') {
+      this._classes.clear();
+      String(value).split(/\s+/).filter(Boolean).forEach((c) => this._classes.add(c));
+    }
+  }
+  getAttribute(key) { return this.attrs[key]; }
+  appendChild(child) { this.childNodes.push(child); return child; }
+  set textContent(value) { this._text = value; this.childNodes = []; }
+  get textContent() {
+    return this._text || this.childNodes.map((c) => c.textContent).join('');
+  }
+}
+
+const realDocument = globalThis.document;
+globalThis.document = { createElementNS: (_ns, name) => new StubNode(name) };
+
+try {
+  const collect = (node, out = []) => {
+    if (node.classList && node.classList.contains('nt-note')) out.push(node);
+    for (const child of node.childNodes) collect(child, out);
+    return out;
+  };
+
+  let firstScore = null;
+  for (const file of scoreFiles) {
+    const data = JSON.parse(readFileSync(path.join(scoresDir, file), 'utf8'));
+    const parsed = parseNotation(data.notation);
+    const container = new StubNode('div');
+    const { noteEls } = renderNotation(container, parsed);
+    const gs = collect(container);
+
+    if (gs.length !== parsed.notes.length) fail(`${file}: 渲染出的音符节点 ${gs.length} ≠ 解析出的 ${parsed.notes.length}`);
+    else ok(`${file}: 渲染出 ${gs.length} 个音符节点且与解析一致`);
+
+    const idsOk = gs.every((g, i) => g.getAttribute('data-i') === String(i));
+    if (idsOk) ok(`${file}: data-i 与时间轴序号一一对应`);
+    else fail(`${file}: data-i 序号不连续或错位`);
+
+    if (!firstScore) firstScore = { file, parsed, noteEls };
+  }
+
+  if (firstScore) {
+    const { file, parsed, noteEls } = firstScore;
+    const timeline = buildTimeline(parsed.notes, parsed.bpm);
+    const state = { prevTime: -1, prevIndex: -1 };
+    resetProgress(noteEls, state);
+
+    const snap = () => ({
+      past: noteEls.filter((n) => n.classList.contains('past')).length,
+      cur: noteEls.findIndex((n) => n.classList.contains('current')),
+    });
+
+    const cases = [
+      [0, 0, 0, '起点：只有第 0 个在播'],
+      [timeline[0].end + 0.02, 1, 1, '跨过首音：第 0 个已播放、第 1 个在播'],
+      [Number.MAX_SAFE_INTEGER, noteEls.length, -1, '播完：全部已播放且无在播'],
+      [0, 0, 0, '时间回退：重新从第 0 个开始'],
+      [null, 0, -1, '未播放（null）：三态全灭'],
+    ];
+    for (const [time, past, cur, why] of cases) {
+      paintProgress(noteEls, timeline, time, state);
+      const got = snap();
+      if (got.past === past && got.cur === cur) ok(`播放进度三态 ${file}｜${why}`);
+      else fail(`播放进度三态 ${file}｜${why}：期望 past=${past} cur=${cur}，得到 ${JSON.stringify(got)}`);
+    }
+  }
+} finally {
+  globalThis.document = realDocument;
 }
 
 // ---------- 4. HTTP 连通性 ----------

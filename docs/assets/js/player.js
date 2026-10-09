@@ -42,6 +42,8 @@ export class ScorePlayer {
     this.primed = false;
     /** 播放状态：'idle' 未播放/已停止，'playing' 播放中，'paused' 已暂停 */
     this.state = 'idle';
+    this.startedAt = 0; // 本次播放起点（AudioContext 时间轴）
+    this.pausedAt = 0;  // 暂停时的播放位置（秒）
     this.hiddenDiv = null;
   }
 
@@ -86,6 +88,8 @@ export class ScorePlayer {
     this.visualObj = null;
     this.primed = false;
     this.state = 'idle'; // 音色变了，重新初始化后从头播放
+    this.startedAt = 0;
+    this.pausedAt = 0;
     this.onStatus('音色已切换，点击播放重新加载');
   }
 
@@ -126,6 +130,7 @@ export class ScorePlayer {
     // 不能用 stop() —— 它会把播放位置归零，导致「暂停再播放从头开始」。
     if (this.state === 'paused') {
       this.synth.resume();
+      this.startedAt = this.audioContext.currentTime - this.pausedAt;
       this.state = 'playing';
       this.onStatus('继续播放…');
       return true;
@@ -133,13 +138,23 @@ export class ScorePlayer {
 
     try { this.synth.stop(); } catch (err) { /* 忽略 */ }
     this.synth.start();
+    this.startedAt = this.audioContext.currentTime;
+    this.pausedAt = 0;
     this.state = 'playing';
     this.onStatus('正在播放…');
     return true;
   }
 
+  /** 当前播放位置（秒）。播放进度高亮就靠它 */
+  currentTime() {
+    if (this.state === 'paused') return this.pausedAt;
+    if (this.state !== 'playing' || !this.audioContext) return 0;
+    return Math.max(0, this.audioContext.currentTime - this.startedAt);
+  }
+
   pause() {
     if (!this.synth || !this.primed) return;
+    this.pausedAt = this.currentTime();
     this.synth.pause();
     this.state = 'paused';
     this.onStatus('已暂停');
@@ -148,6 +163,8 @@ export class ScorePlayer {
   stop() {
     if (!this.synth || !this.primed) return;
     try { this.synth.stop(); } catch (err) { /* 忽略 */ }
+    this.startedAt = 0;
+    this.pausedAt = 0;
     this.state = 'idle';
     this.onStatus('已停止');
   }

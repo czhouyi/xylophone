@@ -25,10 +25,9 @@ const scores = [];
 for (const file of files) {
   const raw = JSON.parse(await readFile(path.join(scoreDir, file), 'utf8'));
   const id = raw.id || path.basename(file, '.json');
-  const info = (raw.jianpu && raw.jianpu.info) || {};
 
-  if (!raw.jianpu || !raw.jianpu.score) {
-    console.warn(`跳过 ${file}：缺少 jianpu.score`);
+  if (typeof raw.notation !== 'string' || !raw.notation.trim()) {
+    console.warn(`跳过 ${file}：缺少 notation`);
     continue;
   }
   if (id !== path.basename(file, '.json')) {
@@ -37,9 +36,9 @@ for (const file of files) {
 
   scores.push({
     id,
-    title: info.title || id,
+    title: raw.title || id,
     subtitle: raw.subtitle || '',
-    composer: info.composer || '',
+    composer: raw.composer || '',
     difficulty: raw.difficulty || '',
     tags: Array.isArray(raw.tags) ? raw.tags : [],
   });
