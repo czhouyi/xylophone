@@ -1,6 +1,16 @@
 {
   "scores": [
     {
+      "id": "ha-ba-gou",
+      "title": "哈巴狗",
+      "subtitle": "",
+      "composer": "",
+      "difficulty": "入门",
+      "tags": [
+        "儿歌"
+      ]
+    },
+    {
       "id": "two-tigers",
       "title": "两只老虎",
       "subtitle": "Frère Jacques",

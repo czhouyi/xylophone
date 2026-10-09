@@ -10,7 +10,8 @@
  *   1-                延长一拍（每多一个 - 再多一拍）
  *   1.                附点（最多两个）
  *   |  ||  |]         小节线 / 双纵线 / 终止线
- *   L:歌词            歌词行；一个中文字对一个音符，* 表示该音符不填词
+ *   L:歌词            歌词行；一个中文字对一个音符，* 表示该音符不填词，
+ *                     标点随前一个字显示、不占音符位
  *   /key(D)           调性，只能写在谱面开头
  *   ｂｐｍ70           速度，只能写在谱面开头
  *
@@ -141,9 +142,13 @@ function stripDirectives(line, state) {
   return out;
 }
 
+/** 歌词里的标点：跟着前一个字一起显示，但不单独占一个音符位 */
+const LYRIC_PUNCT = /[，。、；：！？…—～·「」『』（）〔〕《》〈〉“”‘’"'(),.;:!?]/;
+
 /**
  * 把一行歌词切成与音符一一对应的槽位。
- * 规则：空白分隔；`*` 表示"这个音符不唱词"；其余按字切（英文用 - 分音节）。
+ * 规则：空白分隔；`*` 表示"这个音符不唱词"；其余按字切（英文用 - 分音节）；
+ * 标点并入前一个字，不占音符位。
  */
 function splitLyric(text) {
   const slots = [];
@@ -155,7 +160,13 @@ function splitLyric(text) {
       continue;
     }
     // '_' 表示前一个字的音延续到这个音符上，占位但不显示
-    for (const ch of chunk) slots.push(ch === '_' ? '' : ch);
+    for (const ch of chunk) {
+      if (LYRIC_PUNCT.test(ch)) {
+        if (slots.length) slots[slots.length - 1] += ch;
+        continue;
+      }
+      slots.push(ch === '_' ? '' : ch);
+    }
   }
   return slots;
 }
