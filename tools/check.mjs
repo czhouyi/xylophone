@@ -95,6 +95,11 @@ for (const file of scoreFiles) {
   else ok(`${file}: 歌词与音符逐行对齐`);
 
   ok(`${file}: ${parsed.notes.length} 个音符 / ${parsed.lines.length} 行 / key=${parsed.key || '-'}`);
+
+  // abc（听）与 notation（看）必须描述同一首曲子；音符数对不上就是两边脱节了
+  const abcNotes = String(data.abc.body || '').split(/[\s|]+/).filter(Boolean).length;
+  if (abcNotes === parsed.notes.length) ok(`${file}: abc 与 notation 音符数一致（${abcNotes}）`);
+  else fail(`${file}: abc 音符 ${abcNotes} 个 ≠ notation ${parsed.notes.length} 个 —— 音频与谱面脱节`);
 }
 
 // ---------- 2. index.json 一致性 ----------
