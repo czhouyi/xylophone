@@ -1,0 +1,25 @@
+{
+  "id": "little-star",
+  "subtitle": "Twinkle Twinkle Little Star",
+  "difficulty": "入门",
+  "tags": ["儿歌"],
+  "abc": {
+    "title": "小星星",
+    "meter": "4/4",
+    "length": "1/4",
+    "key": "C",
+    "body": "C C G G | A A G2 | F F E E | D D C2 |\nG G F F | E E D2 | G G F F | E E D2 |\nC C G G | A A G2 | F F E E | D D C2 |"
+  },
+  "jianpu": {
+    "info": {
+      "title": "小星星",
+      "composer": "莫扎特 改编",
+      "time": "4",
+      "tempo": "88",
+      "key": "C",
+      "beat": "4"
+    },
+    "score": "1,1,5,5|6,6,5,-|4,4,3,3|2,2,1,-|\n5,5,4,4|3,3,2,-|5,5,4,4|3,3,2,-|\n1,1,5,5|6,6,5,-|4,4,3,3|2,2,1,-",
+    "lyric": "一闪一闪亮晶晶-\n满天都是小星星-\n挂在天空放光明-\n好像千颗小眼睛-\n一闪一闪亮晶晶-\n满天都是小星星"
+  }
+}

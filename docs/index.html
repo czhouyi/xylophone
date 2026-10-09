@@ -1,0 +1,36 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>木琴曲谱库</title>
+  <meta name="description" content="木琴简谱曲谱库：在线查看简谱并试听。">
+  <link rel="stylesheet" href="assets/css/base.css">
+  <link rel="stylesheet" href="assets/css/list.css">
+</head>
+<body>
+
+  <header class="site-header">
+    <div class="wrap">
+      <a class="brand" href="index.html">木琴曲谱库</a>
+      <p class="brand-sub">简谱 · 在线试听</p>
+    </div>
+  </header>
+
+  <main class="wrap">
+    <div class="page-head">
+      <h1 class="page-title">曲谱列表</h1>
+      <p class="page-desc">点击任一曲谱查看简谱并试听。</p>
+    </div>
+
+    <p id="list-status" class="status-line">正在加载曲谱…</p>
+    <ul id="score-list" class="score-grid"></ul>
+  </main>
+
+  <footer class="site-footer">
+    <div class="wrap">木琴曲谱库 · 数据与页面分离，新增曲谱只需添加 JSON 文件。</div>
+  </footer>
+
+  <script type="module" src="assets/js/list.js"></script>
+</body>
+</html>

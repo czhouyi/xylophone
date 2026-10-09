@@ -1,0 +1,78 @@
+/* ==========================================================================
+   score.css — 曲谱详情页（score.html）
+   ========================================================================== */
+
+.back-link {
+  display: inline-block;
+  margin-bottom: 18px;
+  font-size: 0.9rem;
+  color: var(--text-muted);
+}
+.back-link:hover { color: var(--accent); text-decoration: none; }
+
+/* ---------- 曲谱抬头 ---------- */
+
+.score-header { margin-bottom: 22px; }
+
+.score-title {
+  margin: 0 0 6px;
+  font-size: 1.7rem;
+}
+
+.score-subtitle {
+  margin: 0 0 6px;
+  font-size: 0.95rem;
+  color: var(--text-muted);
+}
+
+.score-byline {
+  margin: 0 0 14px;
+  font-size: 0.9rem;
+  color: var(--text-muted);
+}
+
+.score-tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+/* ---------- 乐谱容器 ---------- */
+
+.notation-card {
+  min-height: 160px;
+  margin-bottom: 20px;
+  padding: 20px;
+  overflow-x: auto;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow);
+}
+
+/* ---------- 播放工具栏 ---------- */
+
+.toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 16px 24px;
+  align-items: center;
+  margin-bottom: 14px;
+}
+
+.toolbar .field {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+
+.toolbar .field label {
+  font-size: 0.9rem;
+  color: var(--text-muted);
+}
+
+.controls {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+}

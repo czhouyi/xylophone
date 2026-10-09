@@ -1,0 +1,132 @@
+/**
+ * player.js — 音频播放控制器
+ *
+ * 基于 abcjs 的合成器：负责音色切换、预渲染（prime）、播放 / 暂停 / 停止。
+ * 与界面解耦：状态通过 onStatus 回调外抛，DOM 只由页面入口（score.js）操作。
+ */
+
+const SOUND_FONT_URL = 'https://gleitz.github.io/midi-js-soundfonts/FluidR3_GM/';
+const DEFAULT_PROGRAM = 13; // 木琴 (Marimba)
+
+/** 轮询等待外部脚本（如 CDN 上的 abcjs）就绪 */
+function waitFor(getValue, { label = '依赖', timeout = 20000, interval = 50 } = {}) {
+  return new Promise((resolve, reject) => {
+    const startedAt = Date.now();
+    (function tick() {
+      const value = getValue();
+      if (value) return resolve(value);
+      if (Date.now() - startedAt > timeout) {
+        return reject(new Error(`${label} 加载超时，请检查网络后刷新`));
+      }
+      setTimeout(tick, interval);
+    })();
+  });
+}
+
+export class ScorePlayer {
+  /**
+   * @param {object} options
+   * @param {(program: number) => string} options.buildAbc 生成带音色的 ABC 谱
+   * @param {(message: string, level?: 'info'|'error') => void} [options.onStatus]
+   */
+  constructor({ buildAbc, onStatus = () => {} }) {
+    this.buildAbc = buildAbc;
+    this.onStatus = onStatus;
+    this.program = DEFAULT_PROGRAM;
+    this.abcjs = null;
+    this.synth = null;
+    this.audioContext = null;
+    this.visualObj = null;
+    this.primed = false;
+    this.hiddenDiv = null;
+  }
+
+  /** 等待 abcjs 就绪并准备离屏渲染容器 */
+  async ready() {
+    this.abcjs = await waitFor(() => window.ABCJS, { label: 'abcjs' });
+
+    this.hiddenDiv = document.createElement('div');
+    Object.assign(this.hiddenDiv.style, {
+      position: 'absolute',
+      left: '-9999px',
+      top: '0',
+      width: '800px',
+    });
+    document.body.appendChild(this.hiddenDiv);
+
+    this.resetSynth();
+    return this;
+  }
+
+  resetSynth() {
+    if (this.abcjs) {
+      this.synth = new this.abcjs.synth.CreateSynth();
+    }
+  }
+
+  /** abcjs 渲染（离屏，仅用于生成音频所需的 visualObj） */
+  renderForAudio() {
+    const abc = this.buildAbc(this.program);
+    return this.abcjs.renderAbc(this.hiddenDiv, abc, { responsive: 'resize' })[0];
+  }
+
+  /** 切换音色：音色写在 ABC 的 %%MIDI program 里，需重新渲染并重新 prime */
+  setProgram(program) {
+    this.program = Number.parseInt(program, 10) || DEFAULT_PROGRAM;
+    this.stop();
+    this.resetSynth();
+    this.visualObj = null;
+    this.primed = false;
+    this.onStatus('音色已切换，点击播放重新加载');
+  }
+
+  async play() {
+    if (!this.primed) {
+      this.onStatus('正在加载音色并预渲染…');
+
+      if (!this.audioContext) {
+        const AudioCtx = window.AudioContext || window.webkitAudioContext;
+        this.audioContext = new AudioCtx();
+      }
+      if (this.audioContext.state === 'suspended') {
+        await this.audioContext.resume();
+      }
+
+      if (!this.visualObj) {
+        this.visualObj = this.renderForAudio();
+      }
+
+      try {
+        await this.synth.init({
+          audioContext: this.audioContext,
+          visualObj: this.visualObj,
+          soundFontUrl: SOUND_FONT_URL,
+          soundFontVolumeMultiplier: 3.0,
+        });
+        await this.synth.prime();
+        this.primed = true;
+      } catch (err) {
+        console.error('音频初始化失败:', err);
+        this.onStatus('音频加载失败，请检查网络或浏览器控制台', 'error');
+        return false;
+      }
+    }
+
+    try { this.synth.stop(); } catch (err) { /* 忽略 */ }
+    this.synth.start();
+    this.onStatus('正在播放…');
+    return true;
+  }
+
+  pause() {
+    if (!this.synth || !this.primed) return;
+    this.synth.pause();
+    this.onStatus('已暂停');
+  }
+
+  stop() {
+    if (!this.synth || !this.primed) return;
+    try { this.synth.stop(); } catch (err) { /* 忽略 */ }
+    this.onStatus('已停止');
+  }
+}

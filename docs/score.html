@@ -1,0 +1,70 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>曲谱详情 · 木琴曲谱库</title>
+  <meta name="description" content="木琴简谱曲谱详情：在线查看简谱并试听。">
+  <!-- simple-notation 渲染样式（第三方 CDN） -->
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/simple-notation@1.0.27/dist/style.css">
+  <link rel="stylesheet" href="assets/css/base.css">
+  <link rel="stylesheet" href="assets/css/score.css">
+</head>
+<body>
+
+  <header class="site-header">
+    <div class="wrap">
+      <a class="brand" href="index.html">木琴曲谱库</a>
+      <p class="brand-sub">简谱 · 在线试听</p>
+    </div>
+  </header>
+
+  <main class="wrap">
+    <a class="back-link" href="index.html">← 返回曲谱列表</a>
+
+    <p id="page-status" class="status-line" role="status">正在加载曲谱…</p>
+
+    <article id="score-article" hidden>
+      <header class="score-header">
+        <h1 id="score-title" class="score-title"></h1>
+        <p id="score-subtitle" class="score-subtitle"></p>
+        <p id="score-byline" class="score-byline"></p>
+        <div id="score-tags" class="score-tags"></div>
+      </header>
+
+      <!-- simple-notation 简谱渲染容器 -->
+      <div id="notation-container" class="notation-card"></div>
+
+      <div class="toolbar">
+        <div class="field">
+          <label for="instrument">音色</label>
+          <select id="instrument">
+            <option value="13" selected>木琴 (Marimba)</option>
+            <option value="12">钟琴 (Glockenspiel)</option>
+            <option value="11">颤音琴 (Vibraphone)</option>
+            <option value="9">钢片琴 (Celesta)</option>
+            <option value="0">钢琴 (Piano)</option>
+          </select>
+        </div>
+
+        <div class="controls">
+          <button id="btn-play" type="button" disabled>▶ 播放</button>
+          <button id="btn-pause" type="button" class="secondary" disabled>⏸ 暂停</button>
+          <button id="btn-stop" type="button" class="secondary" disabled>⏹ 停止</button>
+        </div>
+      </div>
+
+      <p id="play-status" class="status-line" role="status"></p>
+    </article>
+  </main>
+
+  <footer class="site-footer">
+    <div class="wrap">木琴曲谱库 · 简谱渲染 simple-notation · 音频合成 abcjs</div>
+  </footer>
+
+  <!-- abcjs（音频合成，提供全局 ABCJS） -->
+  <script src="https://cdn.jsdelivr.net/npm/abcjs@6.3.0/dist/abcjs-basic-min.js"></script>
+  <!-- 页面入口（ES module） -->
+  <script type="module" src="assets/js/score.js"></script>
+</body>
+</html>
