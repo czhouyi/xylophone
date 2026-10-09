@@ -291,6 +291,11 @@ try {
     for (const child of node.childNodes || []) collectLines(child, out);
     return out;
   };
+  const collectBars = (node, out = []) => {
+    if (node.classList && node.classList.contains('nt-bar')) out.push(node);
+    for (const child of node.childNodes || []) collectBars(child, out);
+    return out;
+  };
 
   let firstScore = null;
   for (const file of scoreFiles) {
@@ -306,6 +311,13 @@ try {
     const idsOk = gs.every((g, i) => g.getAttribute('data-i') === String(i));
     if (idsOk) ok(`${file}: data-i 与时间轴序号一一对应`);
     else fail(`${file}: data-i 序号不连续或错位`);
+
+    // 小节线（含 || / |]）每一条都应渲染成一个 bar 节点
+    const parsedBars = parsed.lines
+      .reduce((n, l) => n + l.items.filter((it) => it.kind === 'bar').length, 0);
+    const renderedBars = collectBars(container).length;
+    if (renderedBars === parsedBars) ok(`${file}: ${renderedBars} 条小节线渲染完整`);
+    else fail(`${file}: 小节线渲染 ${renderedBars} 条 ≠ 解析出 ${parsedBars} 条`);
 
     // 减时线按“拍”分组：5_6_5_4_ 应该是 “56”“54” 两段，不能连成一长条
     if (file === 'two-tigers.json') {
