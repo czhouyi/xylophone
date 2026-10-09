@@ -1,6 +1,17 @@
 {
   "scores": [
     {
+      "id": "two-tigers",
+      "title": "两只老虎",
+      "subtitle": "Frère Jacques",
+      "composer": "法国童谣",
+      "difficulty": "入门",
+      "tags": [
+        "儿歌",
+        "法国童谣"
+      ]
+    },
+    {
       "id": "little-star",
       "title": "小星星",
       "subtitle": "Twinkle Twinkle Little Star",

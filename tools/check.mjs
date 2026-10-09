@@ -57,6 +57,15 @@ for (const file of scoreFiles) {
   else {
     const cps = [...data.jianpu.info.title].map((c) => c.codePointAt(0).toString(16)).join(' ');
     ok(`${file}: fields ok (title=${cps}, ${data.jianpu.score.split('\n').length} score lines)`);
+
+    // 歌词要与音符逐字对应（'-' 是占位），不齐会导致歌词错位
+    const notes = String(data.jianpu.score).replace(/\s/g, '').split(/[|,]/).filter(Boolean);
+    const lyric = [...String(data.jianpu.lyric || '').replace(/\s/g, '')];
+    if (lyric.length !== notes.length) {
+      console.log(`warn  ${file}: 歌词 ${lyric.length} 字 vs 音符 ${notes.length} 个，可能错位`);
+    } else {
+      ok(`${file}: 歌词与音符逐字对齐 (${notes.length})`);
+    }
   }
 }
 
