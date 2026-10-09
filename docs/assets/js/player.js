@@ -40,6 +40,8 @@ export class ScorePlayer {
     this.audioContext = null;
     this.visualObj = null;
     this.primed = false;
+    /** 播放状态：'idle' 未播放/已停止，'playing' 播放中，'paused' 已暂停 */
+    this.state = 'idle';
     this.hiddenDiv = null;
   }
 
@@ -83,6 +85,7 @@ export class ScorePlayer {
     this.resetSynth();
     this.visualObj = null;
     this.primed = false;
+    this.state = 'idle'; // 音色变了，重新初始化后从头播放
     this.onStatus('音色已切换，点击播放重新加载');
   }
 
@@ -111,6 +114,7 @@ export class ScorePlayer {
         });
         await this.synth.prime();
         this.primed = true;
+        this.state = 'idle'; // 刚初始化好，播放位置在开头
       } catch (err) {
         console.error('音频初始化失败:', err);
         this.onStatus('音频加载失败，请检查网络或浏览器控制台', 'error');
@@ -118,8 +122,18 @@ export class ScorePlayer {
       }
     }
 
+    // 暂停后继续：用 resume() 从暂停处接着放。
+    // 不能用 stop() —— 它会把播放位置归零，导致「暂停再播放从头开始」。
+    if (this.state === 'paused') {
+      this.synth.resume();
+      this.state = 'playing';
+      this.onStatus('继续播放…');
+      return true;
+    }
+
     try { this.synth.stop(); } catch (err) { /* 忽略 */ }
     this.synth.start();
+    this.state = 'playing';
     this.onStatus('正在播放…');
     return true;
   }
@@ -127,12 +141,14 @@ export class ScorePlayer {
   pause() {
     if (!this.synth || !this.primed) return;
     this.synth.pause();
+    this.state = 'paused';
     this.onStatus('已暂停');
   }
 
   stop() {
     if (!this.synth || !this.primed) return;
     try { this.synth.stop(); } catch (err) { /* 忽略 */ }
+    this.state = 'idle';
     this.onStatus('已停止');
   }
 }
