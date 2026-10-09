@@ -57,12 +57,14 @@
   flex-direction: column;
   align-items: flex-start;
   gap: 2px;
+  /* 谱面统一用 lining 数字的字体：Georgia 的默认数字是旧式数字，
+     3/4/5/7/9 会沉到基线以下、6/8 会冒高，看上去“不一样高”。 */
+  font-family: "Times New Roman", Times, "Songti SC", "SimSun", serif;
 }
 
 .nt-line { display: block; overflow: visible; }
 
 .nt-digit {
-  font-family: Georgia, "Times New Roman", "Songti SC", serif;
   fill: var(--text);
 }
 .nt-rest { fill: var(--text-muted); }

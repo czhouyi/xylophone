@@ -44,6 +44,7 @@ export class ScorePlayer {
     this.state = 'idle';
     this.startedAt = 0; // 本次播放起点（AudioContext 时间轴）
     this.pausedAt = 0;  // 暂停时的播放位置（秒）
+    this.duration = 0;  // 音频总时长（秒），由初始化后的 abcjs 谱面给出
     this.hiddenDiv = null;
   }
 
@@ -90,6 +91,7 @@ export class ScorePlayer {
     this.state = 'idle'; // 音色变了，重新初始化后从头播放
     this.startedAt = 0;
     this.pausedAt = 0;
+    this.duration = 0;
     this.onStatus('音色已切换，点击播放重新加载');
   }
 
@@ -119,6 +121,9 @@ export class ScorePlayer {
         await this.synth.prime();
         this.primed = true;
         this.state = 'idle'; // 刚初始化好，播放位置在开头
+        this.duration = (this.visualObj && typeof this.visualObj.getTotalTime === 'function')
+          ? this.visualObj.getTotalTime()
+          : 0;
       } catch (err) {
         console.error('音频初始化失败:', err);
         this.onStatus('音频加载失败，请检查网络或浏览器控制台', 'error');
@@ -145,11 +150,39 @@ export class ScorePlayer {
     return true;
   }
 
-  /** 当前播放位置（秒）。播放进度高亮就靠它 */
+  /** 当前播放位置（秒） */
   currentTime() {
     if (this.state === 'paused') return this.pausedAt;
     if (this.state !== 'playing' || !this.audioContext) return 0;
     return Math.max(0, this.audioContext.currentTime - this.startedAt);
+  }
+
+  /**
+   * 交给播放进度高亮的位置（秒）。
+   * 返回 null 表示当前没有进度（未播放 / 已停止 / 刚放完）。
+   * 顺手在这里判定“放到底了”：进度循环每帧都会问一次，正好收尾。
+   */
+  progressTime() {
+    if (this.state === 'idle' || !this.audioContext) return null;
+    if (this.state === 'paused') return this.pausedAt;
+
+    const time = Math.max(0, this.audioContext.currentTime - this.startedAt);
+    if (this.duration > 0 && time >= this.duration) {
+      this.finish();
+      return null;
+    }
+    return time;
+  }
+
+  /** 播放到结尾：收尾，并把状态告诉界面 */
+  finish() {
+    if (this.synth) {
+      try { this.synth.stop(); } catch (err) { /* 忽略 */ }
+    }
+    this.startedAt = 0;
+    this.pausedAt = 0;
+    this.state = 'idle';
+    this.onStatus('播放完毕');
   }
 
   pause() {

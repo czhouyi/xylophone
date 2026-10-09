@@ -111,7 +111,7 @@ async function initPlayer(score) {
 
   setControlsEnabled(true);
   setStatus(els.playStatus, '音频就绪，点击播放');
-  startProgress(noteEls, timeline, () => (player.state === 'idle' ? null : player.currentTime()));
+  startProgress(noteEls, timeline, () => player.progressTime());
 
   els.instrument.addEventListener('change', (event) => {
     const option = event.target.selectedOptions[0];

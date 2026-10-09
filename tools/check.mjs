@@ -208,6 +208,30 @@ else {
   else fail(`停止：位置 ${p.currentTime()}，state=${p.state}`);
 }
 
+// 播放到底：状态要收尾，不能一直停在“正在播放…”
+{
+  let status = '';
+  const q = new ScorePlayer({ buildAbc: () => '', onStatus: (m) => { status = m; } });
+  let clock = 0;
+  q.audioContext = { state: 'running', resume: async () => {}, get currentTime() { return clock; } };
+  q.synth = { start() {}, stop() {}, pause() {}, resume() {} };
+  q.primed = true;
+  q.duration = 5;
+
+  await q.play();
+  clock = 2;
+  if (q.progressTime() === 2) ok('进度：播放中返回当前秒数');
+  else fail(`进度：返回 ${q.progressTime()}，期望 2`);
+
+  clock = 5.5; // 越过总时长
+  const ended = q.progressTime();
+  if (ended === null && q.state === 'idle' && status === '播放完毕') {
+    ok('播放到底：状态回到 idle 且提示「播放完毕」');
+  } else {
+    fail(`播放到底：progressTime=${ended}，state=${q.state}，status=${status}`);
+  }
+}
+
 // ---------- 3d. 渲染结构 + 播放进度三态（纯 Node 驱动真实代码） ----------
 // notation.js 只用到极少的 DOM API，给它一个最小桩就能在 Node 里跑完整渲染，
 // 这样这些不变量不必依赖浏览器就能回归。

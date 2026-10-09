@@ -24,6 +24,10 @@ const DIGIT_SIZE = 21;   // 数字字号
 const LYRIC_SIZE = 14;   // 歌词字号
 const DIGIT_W = 14;      // 数字占位宽度
 const TIE_W = 22;        // 每个延音横杠的宽度
+const DOT_GAP = 5;       // 附点距数字右边缘
+const DOT_W = 6;         // 附点之间的间距
+const DOT_R = 1.8;       // 附点半径
+const MARK_PAD = 3;      // 高亮块相对内容的外扩
 const MIN_NOTE_W = 22;   // 单音符最小宽度
 const BAR_W = 14;        // 小节线占位宽度
 const BASE_Y = 44;       // 数字基线（自 svg 顶部起算）
@@ -329,42 +333,52 @@ function accidentalGlyphs(accidental) {
 }
 
 /**
- * 画一个音符。
- * @returns {{group: Element, width: number}}
+ * 一个音符的横向排版。
+ *
+ * 渲染和播放高亮共用这一份计算，避免两边各算一套导致高亮块和数字对不齐。
+ * 内容（升降号 + 数字 + 延音杠/附点）在槽位里居中，槽位宽度就代表这个音占的版面。
  */
-function measureNote(note) {
+function layoutNote(note) {
   const accidental = accidentalGlyphs(note.accidental);
   const accidentalW = accidental ? estimateTextWidth(accidental, DIGIT_SIZE * 0.62) : 0;
   const tieCount = Math.max(0, note.mul - 1);
-  const bodyW = accidentalW + DIGIT_W + tieCount * TIE_W;
+  const dotW = note.dots ? DOT_GAP + (note.dots - 1) * DOT_W + DOT_R * 2 : 0;
+  const contentW = accidentalW + DIGIT_W + Math.max(tieCount * TIE_W, dotW);
   const lyricW = note.lyric ? estimateTextWidth(note.lyric, LYRIC_SIZE) : 0;
-  return Math.max(MIN_NOTE_W, bodyW, lyricW);
+  const slotW = Math.max(MIN_NOTE_W, contentW, lyricW);
+  return { accidental, accidentalW, tieCount, contentW, slotW };
+}
+
+function measureNote(note) {
+  return layoutNote(note).slotW;
 }
 
 function drawNote(note, x) {
   const group = el('g', { class: 'nt-note', 'data-i': note.index });
-  const accidental = accidentalGlyphs(note.accidental);
-  const accidentalW = accidental ? estimateTextWidth(accidental, DIGIT_SIZE * 0.62) : 0;
-  const tieCount = Math.max(0, note.mul - 1);
-  const width = measureNote(note);
+  const { accidental, accidentalW, tieCount, contentW, slotW } = layoutNote(note);
 
-  // 高亮背景（默认透明，播放时由 CSS 上色）
+  const contentX = x + (slotW - contentW) / 2;   // 内容在槽位里居中
+  const digitX = contentX + accidentalW + DIGIT_W / 2;
+
+  // 高亮块只包住数字本身（升降号 + 数字）并居中于它：
+  // 延音杠、附点不参与，这样不管音符多宽，数字都正好落在块的正中。
+  // （默认透明，播放时由 CSS 上色）
+  const markW = accidentalW + DIGIT_W + MARK_PAD * 2;
   const mark = el('rect', {
-    x: x - 2,
+    x: digitX - markW / 2,
     y: BASE_Y - DIGIT_SIZE - 12,
-    width: width + 4,
+    width: markW,
     height: DIGIT_SIZE + 26,
     rx: 3,
     class: 'nt-mark',
   });
   group.appendChild(mark);
 
-  const digitX = x + accidentalW + DIGIT_W / 2;
   const isRest = note.pitch === '0';
 
   if (accidental) {
     group.appendChild(text(accidental, {
-      x: x,
+      x: contentX,
       y: BASE_Y - 1,
       class: 'nt-accidental',
       'font-size': DIGIT_SIZE * 0.62,
@@ -398,14 +412,14 @@ function drawNote(note, x) {
     }));
   }
 
-  // 减时线（下划线）
-  const lineW = Math.min(width - 2, DIGIT_W + tieCount * TIE_W);
+  // 减时线（下划线）：铺满整个槽位，相邻音符的线自然接成一条；
+  // 跨小节时中间隔着小节线的空位，会正确断开
   for (let i = 0; i < note.type; i += 1) {
     const y = BASE_Y + 7 + i * 5;
     group.appendChild(el('line', {
-      x1: x + (width - lineW) / 2,
+      x1: x,
       y1: y,
-      x2: x + (width - lineW) / 2 + lineW,
+      x2: x + slotW,
       y2: y,
       class: 'nt-underline',
     }));
@@ -414,16 +428,16 @@ function drawNote(note, x) {
   // 附点
   for (let i = 0; i < note.dots; i += 1) {
     group.appendChild(el('circle', {
-      cx: digitX + DIGIT_W / 2 + 5 + i * 6,
+      cx: digitX + DIGIT_W / 2 + DOT_GAP + i * DOT_W,
       cy: BASE_Y - DIGIT_SIZE * 0.32,
-      r: 1.8,
+      r: DOT_R,
       class: 'nt-dot',
     }));
   }
 
   // 延音横杠
   for (let i = 0; i < tieCount; i += 1) {
-    const dashX = x + accidentalW + DIGIT_W + i * TIE_W;
+    const dashX = contentX + accidentalW + DIGIT_W + i * TIE_W;
     group.appendChild(text('-', {
       x: dashX + TIE_W / 2,
       y: BASE_Y,
@@ -436,7 +450,7 @@ function drawNote(note, x) {
   // 歌词
   if (note.lyric) {
     group.appendChild(text(note.lyric, {
-      x: x + width / 2,
+      x: x + slotW / 2,
       y: BASE_Y + 34,
       class: 'nt-lyric',
       'font-size': LYRIC_SIZE,
