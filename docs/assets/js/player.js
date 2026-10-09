@@ -6,7 +6,9 @@
  */
 
 const SOUND_FONT_URL = 'https://gleitz.github.io/midi-js-soundfonts/FluidR3_GM/';
-const DEFAULT_PROGRAM = 13; // 木琴 (Marimba)
+// 音色编号用 abcjs 的 %%MIDI program 取值（0-based GM）：
+// 0=钢琴 8=钢片琴 9=钟琴 11=颤音琴 12=马林巴 13=木琴
+const DEFAULT_PROGRAM = 13; // 木琴 (Xylophone)
 
 /** 轮询等待外部脚本（如 CDN 上的 abcjs）就绪 */
 function waitFor(getValue, { label = '依赖', timeout = 20000, interval = 50 } = {}) {
@@ -72,7 +74,11 @@ export class ScorePlayer {
 
   /** 切换音色：音色写在 ABC 的 %%MIDI program 里，需重新渲染并重新 prime */
   setProgram(program) {
-    this.program = Number.parseInt(program, 10) || DEFAULT_PROGRAM;
+    // 注意：钢琴的编号是 0，是 falsy 值，这里必须用 Number.isInteger 判断，
+    // 否则会被 || 回退成默认音色，导致「选钢琴没反应」。
+    const parsed = Number.parseInt(program, 10);
+    const valid = Number.isInteger(parsed) && parsed >= 0 && parsed <= 127;
+    this.program = valid ? parsed : DEFAULT_PROGRAM;
     this.stop();
     this.resetSynth();
     this.visualObj = null;

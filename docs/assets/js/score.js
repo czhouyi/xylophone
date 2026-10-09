@@ -111,7 +111,11 @@ async function initPlayer(score) {
   setStatus(els.playStatus, '音频就绪，点击播放');
 
   els.instrument.addEventListener('change', (event) => {
+    const option = event.target.selectedOptions[0];
+    const label = option ? option.textContent.trim() : '';
     player.setProgram(event.target.value);
+    // setProgram 已给出一条状态，这里覆盖成带音色名的提示，便于确认切换已生效
+    if (label) setStatus(els.playStatus, `音色已切换为「${label}」，点击播放生效`);
   });
   els.play.addEventListener('click', () => { player.play(); });
   els.pause.addEventListener('click', () => { player.pause(); });
