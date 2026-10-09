@@ -296,6 +296,11 @@ try {
     for (const child of node.childNodes || []) collectBars(child, out);
     return out;
   };
+  const collectLyrics = (node, out = []) => {
+    if (node.nodeName === 'text' && node.classList.contains('nt-lyric')) out.push(node);
+    for (const child of node.childNodes || []) collectLyrics(child, out);
+    return out;
+  };
 
   let firstScore = null;
   for (const file of scoreFiles) {
@@ -311,6 +316,12 @@ try {
     const idsOk = gs.every((g, i) => g.getAttribute('data-i') === String(i));
     if (idsOk) ok(`${file}: data-i 与时间轴序号一一对应`);
     else fail(`${file}: data-i 序号不连续或错位`);
+
+    // 占位槽（`_` / `*`）不应把符号本身漏到谱面上
+    const lyricTexts = collectLyrics(container).map((t) => t.textContent);
+    const leaks = lyricTexts.filter((s) => /[_*]/.test(s));
+    if (leaks.length) fail(`${file}: 占位符漏进了歌词：${JSON.stringify(leaks.slice(0, 4))}`);
+    else ok(`${file}: ${lyricTexts.length} 个字渲染出来，占位符未泄漏`);
 
     // 小节线（含 || / |]）每一条都应渲染成一个 bar 节点
     const parsedBars = parsed.lines
