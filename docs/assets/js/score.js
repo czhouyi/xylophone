@@ -111,6 +111,8 @@ async function initPlayer(score) {
 
   setControlsEnabled(true);
   setStatus(els.playStatus, '音频就绪，点击播放');
+  // 播到结尾的判定要用总时长：简谱时间轴的总长与 abcjs 的音频一致
+  player.setDuration(timeline.length ? timeline[timeline.length - 1].end : 0);
   startProgress(noteEls, timeline, () => player.progressTime());
 
   els.instrument.addEventListener('change', (event) => {

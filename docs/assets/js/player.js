@@ -44,7 +44,7 @@ export class ScorePlayer {
     this.state = 'idle';
     this.startedAt = 0; // 本次播放起点（AudioContext 时间轴）
     this.pausedAt = 0;  // 暂停时的播放位置（秒）
-    this.duration = 0;  // 音频总时长（秒），由初始化后的 abcjs 谱面给出
+    this.duration = 0;  // 音频总时长（秒），由页面通过 setDuration 传入
     this.hiddenDiv = null;
   }
 
@@ -91,7 +91,6 @@ export class ScorePlayer {
     this.state = 'idle'; // 音色变了，重新初始化后从头播放
     this.startedAt = 0;
     this.pausedAt = 0;
-    this.duration = 0;
     this.onStatus('音色已切换，点击播放重新加载');
   }
 
@@ -121,9 +120,6 @@ export class ScorePlayer {
         await this.synth.prime();
         this.primed = true;
         this.state = 'idle'; // 刚初始化好，播放位置在开头
-        this.duration = (this.visualObj && typeof this.visualObj.getTotalTime === 'function')
-          ? this.visualObj.getTotalTime()
-          : 0;
       } catch (err) {
         console.error('音频初始化失败:', err);
         this.onStatus('音频加载失败，请检查网络或浏览器控制台', 'error');
@@ -183,6 +179,18 @@ export class ScorePlayer {
     this.pausedAt = 0;
     this.state = 'idle';
     this.onStatus('播放完毕');
+  }
+
+  /**
+   * 设置音频总时长（秒）——“播放到底”的判定靠它。
+   *
+   * 由页面在渲染完简谱后传入简谱时间轴的总长。不用 abcjs 的 getTotalTime()：
+   * 它只有在传 tempo 调过 millisecondsPerMeasure() 之后才有值，是内部实现细节，
+   * 直接读会拿到 undefined，于是“播放到底”永远不触发。
+   * 简谱时间轴与音频时长一致：两边速度由 tools/check.mjs 强制相等。
+   */
+  setDuration(seconds) {
+    this.duration = Number.isFinite(seconds) && seconds > 0 ? seconds : 0;
   }
 
   pause() {

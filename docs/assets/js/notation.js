@@ -28,6 +28,7 @@ const DOT_GAP = 5;       // 附点距数字右边缘
 const DOT_W = 6;         // 附点之间的间距
 const DOT_R = 1.8;       // 附点半径
 const MARK_PAD = 3;      // 高亮块相对内容的外扩
+const UNDERLINE_GAP = 3; // 减时线不与邻音相连时的缩进
 const MIN_NOTE_W = 22;   // 单音符最小宽度
 const BAR_W = 14;        // 小节线占位宽度
 const BASE_Y = 44;       // 数字基线（自 svg 顶部起算）
@@ -353,7 +354,7 @@ function measureNote(note) {
   return layoutNote(note).slotW;
 }
 
-function drawNote(note, x) {
+function drawNote(note, x, links) {
   const group = el('g', { class: 'nt-note', 'data-i': note.index });
   const { accidental, accidentalW, tieCount, contentW, slotW } = layoutNote(note);
 
@@ -412,14 +413,14 @@ function drawNote(note, x) {
     }));
   }
 
-  // 减时线（下划线）：铺满整个槽位，相邻音符的线自然接成一条；
-  // 跨小节时中间隔着小节线的空位，会正确断开
+  // 减时线（下划线）：同一拍内的音符共用一条线（links 说明左右是否与邻音相接），
+  // 跨拍、跨小节都断开
   for (let i = 0; i < note.type; i += 1) {
     const y = BASE_Y + 7 + i * 5;
     group.appendChild(el('line', {
-      x1: x,
+      x1: x + (links.left ? 0 : UNDERLINE_GAP),
       y1: y,
-      x2: x + slotW,
+      x2: x + slotW - (links.right ? 0 : UNDERLINE_GAP),
       y2: y,
       class: 'nt-underline',
     }));
@@ -489,6 +490,20 @@ function drawBar(style, x) {
 }
 
 /**
+ * 两个相邻音符是否共用一条减时线。
+ *
+ * 简谱的减时线按“拍”分组：同一拍内的音符连成一条，跨拍就断开。
+ * 所以 5_6_5_4_ 应该是 “56” “54” 两段，而不是四个连成一长条。
+ * 中间夹着小节线时也不会相连（它不是音符，直接判为不相接）。
+ */
+function sameBeat(a, b) {
+  return Boolean(a) && Boolean(b)
+    && a.item.kind === 'note' && b.item.kind === 'note'
+    && a.item.type > 0 && b.item.type > 0
+    && Math.floor(a.startBeat + 1e-9) === Math.floor(b.startBeat + 1e-9);
+}
+
+/**
  * 把解析结果渲染进容器。
  * @returns {{noteEls: Array<Element>, lineEls: Array<Element>}}
  */
@@ -503,10 +518,24 @@ export function renderNotation(container, parsed) {
 
     for (const item of line.items) {
       const itemWidth = item.kind === 'note' ? measureNote(item) : BAR_W;
-      measured.push({ item, width: itemWidth });
+      measured.push({ item, width: itemWidth, startBeat: 0, linkLeft: false, linkRight: false });
       width += itemWidth;
     }
     if (!measured.length) continue;
+
+    // 记下每个音符的起拍位置，供减时线分组用
+    let beat = 0;
+    for (const entry of measured) {
+      if (entry.item.kind !== 'note') continue;
+      entry.startBeat = beat;
+      beat += entry.item.beat;
+    }
+    for (let i = 0; i < measured.length; i += 1) {
+      const cur = measured[i];
+      if (cur.item.kind !== 'note') continue;
+      cur.linkLeft = sameBeat(measured[i - 1], cur);
+      cur.linkRight = sameBeat(cur, measured[i + 1]);
+    }
 
     const svg = el('svg', {
       class: 'nt-line',
@@ -518,7 +547,7 @@ export function renderNotation(container, parsed) {
     let x = 4;
     for (const entry of measured) {
       if (entry.item.kind === 'note') {
-        const group = drawNote(entry.item, x);
+        const group = drawNote(entry.item, x, { left: entry.linkLeft, right: entry.linkRight });
         svg.appendChild(group);
         noteEls[entry.item.index] = group;
       } else {

@@ -216,7 +216,7 @@ else {
   q.audioContext = { state: 'running', resume: async () => {}, get currentTime() { return clock; } };
   q.synth = { start() {}, stop() {}, pause() {}, resume() {} };
   q.primed = true;
-  q.duration = 5;
+  q.setDuration(5);
 
   await q.play();
   clock = 2;
@@ -230,6 +230,19 @@ else {
   } else {
     fail(`播放到底：progressTime=${ended}，state=${q.state}，status=${status}`);
   }
+}
+
+// 总时长由页面传入（简谱时间轴）；非法值不能让它误触发结束判定
+{
+  const a = new ScorePlayer({ buildAbc: () => '' });
+  a.setDuration(12.5);
+  const notZeroed = [0, -1, NaN, undefined, 'abc', null].filter((v) => {
+    const s = new ScorePlayer({ buildAbc: () => '' });
+    s.setDuration(v);
+    return s.duration !== 0;
+  });
+  if (a.duration === 12.5 && notZeroed.length === 0) ok('时长：setDuration 接受正数，非法值一律退化为 0');
+  else fail(`时长：正数=${a.duration}，非法值未归零的：${JSON.stringify(notZeroed)}`);
 }
 
 // ---------- 3d. 渲染结构 + 播放进度三态（纯 Node 驱动真实代码） ----------
@@ -273,6 +286,11 @@ try {
     for (const child of node.childNodes) collect(child, out);
     return out;
   };
+  const collectLines = (node, out = []) => {
+    if (node.nodeName === 'line' && node.classList.contains('nt-underline')) out.push(node);
+    for (const child of node.childNodes || []) collectLines(child, out);
+    return out;
+  };
 
   let firstScore = null;
   for (const file of scoreFiles) {
@@ -288,6 +306,28 @@ try {
     const idsOk = gs.every((g, i) => g.getAttribute('data-i') === String(i));
     if (idsOk) ok(`${file}: data-i 与时间轴序号一一对应`);
     else fail(`${file}: data-i 序号不连续或错位`);
+
+    // 减时线按“拍”分组：5_6_5_4_ 应该是 “56”“54” 两段，不能连成一长条
+    if (file === 'two-tigers.json') {
+      const underlines = collectLines(container);
+      const byY = new Map();
+      for (const ln of underlines) {
+        const y = ln.getAttribute('y1');
+        if (!byY.has(y)) byY.set(y, []);
+        byY.get(y).push(ln);
+      }
+      let joins = 0;
+      for (const seg of byY.values()) {
+        seg.sort((a, b) => Number(a.getAttribute('x1')) - Number(b.getAttribute('x1')));
+        for (let i = 1; i < seg.length; i += 1) {
+          const prevX2 = Number(seg[i - 1].getAttribute('x2'));
+          const curX1 = Number(seg[i].getAttribute('x1'));
+          if (Math.abs(prevX2 - curX1) < 0.001) joins += 1;
+        }
+      }
+      if (underlines.length === 8 && joins === 4) ok('two-tigers: 减时线按拍分组（56 / 54 各一段，没连成长条）');
+      else fail(`two-tigers: 减时线 ${underlines.length} 条、相接 ${joins} 对，期望 8 条 / 4 对`);
+    }
 
     if (!firstScore) firstScore = { file, parsed, noteEls };
   }
