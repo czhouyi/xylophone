@@ -2,12 +2,13 @@
  * score.js — 曲谱详情页入口
  *
  * 流程：读地址里的 ID → 取数据 → 渲染抬头 → 渲染简谱（notation.js）
- *       → abcjs 播放器接管工具栏 → rAF 驱动播放进度三态
+ *       → 由简谱合成 ABC（abc.js）交给 abcjs 播放 → rAF 驱动播放进度三态
  */
 
 import { loadScore, getScoreIdFromUrl, scoreTitle, scoreComposer } from './data.js';
 import { ScorePlayer } from './player.js';
 import { parseNotation, renderNotation, buildTimeline, startProgress } from './notation.js';
+import { toAbc } from './abc.js';
 
 const els = {
   status: document.getElementById('page-status'),
@@ -64,39 +65,26 @@ function renderHeader(score) {
 
 /**
  * 渲染简谱，并算出每个音符的时间区间。
- * 时间轴按简谱自己的速度和拍数算，abcjs 那边用同样的 Q: 保证一致。
+ * 时间轴按简谱自己的速度和拍数算，传给 abcjs 的 Q: 是同一个值，保证两边一致。
  */
 function renderScore(score) {
   const parsed = parseNotation(score.notation || '');
   const rendered = renderNotation(els.container, parsed);
   noteEls = rendered.noteEls;
 
-  const bpm = parsed.bpm || (score.abc && score.abc.tempo) || 120;
+  const bpm = parsed.bpm || 120;
   timeline = buildTimeline(parsed.notes, bpm);
   return parsed;
-}
-
-/** 把结构化字段拼成 abcjs 谱面。Q: 是必须的——否则播放速度与简谱标注不一致，进度就白做了 */
-function buildAbc(abc, title, program) {
-  return [
-    'X:1',
-    `T:${title || ''}`,
-    `M:${abc.meter || '4/4'}`,
-    `L:${abc.length || '1/4'}`,
-    `Q:1/4=${abc.tempo || 120}`,
-    `K:${abc.key || 'C'}`,
-    `%%MIDI program ${program}`,
-    abc.body || '',
-  ].join('\n');
 }
 
 function setControlsEnabled(enabled) {
   [els.play, els.pause, els.stop].forEach((btn) => { btn.disabled = !enabled; });
 }
 
-async function initPlayer(score) {
+async function initPlayer(score, parsed) {
   const player = new ScorePlayer({
-    buildAbc: (program) => buildAbc(score.abc || {}, score.title, program),
+    // 播放用的 ABC 由简谱现场合成，数据里不再单独存一份
+    buildAbc: (program) => toAbc(parsed, { title: score.title, program }),
     onStatus: (message, level) => setStatus(els.playStatus, message, level === 'error'),
   });
 
@@ -146,15 +134,16 @@ async function main() {
   els.article.hidden = false;
   els.status.hidden = true;
 
+  let parsed;
   try {
-    renderScore(score);
+    parsed = renderScore(score);
   } catch (err) {
     console.error(err);
     setStatus(els.playStatus, `简谱渲染失败：${err.message}`, true);
     return;
   }
 
-  await initPlayer(score);
+  await initPlayer(score, parsed);
 }
 
 main();

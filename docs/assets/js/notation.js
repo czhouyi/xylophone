@@ -14,6 +14,7 @@
  *                     标点随前一个字显示、不占音符位
  *   /key(D)           调性，只能写在谱面开头
  *   ｂｐｍ70           速度，只能写在谱面开头
+ *   meter(3/4)        拍号，可选；不写则由小节拍数反推
  *
  * 渲染结果是一行一个 <svg>，每个音符是一个
  * <g class="nt-note" data-i="序号">，内部含一个透明的
@@ -139,6 +140,13 @@ function stripDirectives(line, state) {
     out = out.replace(bpmMatch[0], ' ');
   }
 
+  // 拍号：必须真摘掉——否则 3/4 里的数字会被当成音符
+  const meterMatch = /meter\(\s*(\d+)\s*\/\s*(\d+)\s*\)/.exec(out);
+  if (meterMatch) {
+    if (!state.meter) state.meter = `${meterMatch[1]}/${meterMatch[2]}`;
+    out = out.replace(meterMatch[0], ' ');
+  }
+
   return out;
 }
 
@@ -173,11 +181,11 @@ function splitLyric(text) {
 
 /**
  * 解析整份谱面。
- * @returns {{key: string|null, bpm: number|null, lines: Array, notes: Array}}
+ * @returns {{key: string|null, bpm: number|null, meter: string|null, lines: Array, notes: Array}}
  */
 export function parseNotation(text) {
   const lines = [];
-  const state = { key: null, bpm: null };
+  const state = { key: null, bpm: null, meter: null };
   let pendingMusic = null; // 等待配对歌词的音乐行
 
   for (const raw of text.split(/\r?\n/)) {
@@ -216,7 +224,7 @@ export function parseNotation(text) {
     }
   }
 
-  return { key: state.key, bpm: state.bpm, lines, notes };
+  return { key: state.key, bpm: state.bpm, meter: state.meter, lines, notes };
 }
 
 /* ---------- 时间轴 ---------- */

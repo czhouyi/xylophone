@@ -19,6 +19,7 @@ import { fileURLToPath } from 'node:url';
 import {
   parseNotation, renderNotation, buildTimeline, paintProgress, resetProgress,
 } from '../docs/assets/js/notation.js';
+import { buildBody, inferMeter, toAbc } from '../docs/assets/js/abc.js';
 import { ScorePlayer } from '../docs/assets/js/player.js';
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
@@ -57,7 +58,8 @@ for (const file of scoreFiles) {
   if (data.id !== path.basename(file, '.json')) problems.push('id != filename');
   if (typeof data.notation !== 'string' || !data.notation.trim()) problems.push('missing notation');
   if (!data.title) problems.push('missing title');
-  if (!data.abc || !data.abc.body) problems.push('missing abc.body');
+  // 播放用的 ABC 是运行时从 notation 生成的，所以数据里不再存 abc 字段
+  if ('abc' in data) problems.push('仍有 abc 字段（现在由 abc.js 生成，请删掉）');
 
   if (problems.length) {
     fail(`${file}: ${problems.join(', ')}`);
@@ -75,14 +77,8 @@ for (const file of scoreFiles) {
     fail(`${file}: notation 里没有解析出音符`);
     continue;
   }
-  if (!parsed.bpm) console.log(`warn  ${file}: notation 未标速度（回退到 abc.tempo）`);
-
-  // 速度必须两边一致，否则播放进度高亮会和实际发声脱节
-  if (parsed.bpm && data.abc.tempo && parsed.bpm !== data.abc.tempo) {
-    fail(`${file}: notation bpm ${parsed.bpm} 与 abc.tempo ${data.abc.tempo} 不一致`);
-  } else if (parsed.bpm && data.abc.tempo) {
-    ok(`${file}: 速度一致 (bpm=${parsed.bpm})`);
-  }
+  if (!parsed.bpm) console.log(`warn  ${file}: notation 未标速度（回退到 120）`);
+  else ok(`${file}: 标了速度 (bpm=${parsed.bpm})`);
 
   // 每一行歌词的槽位数必须等于该行可唱音符数（休止符 0 不占歌词位）
   let mismatched = 0;
@@ -96,10 +92,54 @@ for (const file of scoreFiles) {
 
   ok(`${file}: ${parsed.notes.length} 个音符 / ${parsed.lines.length} 行 / key=${parsed.key || '-'}`);
 
-  // abc（听）与 notation（看）必须描述同一首曲子；音符数对不上就是两边脱节了
-  const abcNotes = String(data.abc.body || '').split(/[\s|]+/).filter(Boolean).length;
-  if (abcNotes === parsed.notes.length) ok(`${file}: abc 与 notation 音符数一致（${abcNotes}）`);
-  else fail(`${file}: abc 音符 ${abcNotes} 个 ≠ notation ${parsed.notes.length} 个 —— 音频与谱面脱节`);
+  // 播放靠运行时生成的 ABC：这里验证它真能生成，且音符与简谱一一对应
+  const abcBody = buildBody(parsed, parsed.key || 'C');
+  const abcNotes = abcBody.split(/[\s|]+/).filter(Boolean).length;
+  if (abcNotes === parsed.notes.length) ok(`${file}: 生成的 ABC 音符与简谱一致（${abcNotes}）`);
+  else fail(`${file}: 生成的 ABC 音符 ${abcNotes} 个 ≠ 简谱 ${parsed.notes.length} 个`);
+
+  const abc = toAbc(parsed, { title: data.title, program: 13 });
+  const heads = ['X:1', 'M:', 'L:1/4', `Q:1/4=${parsed.bpm || 120}`, `K:${parsed.key || 'C'}`, '%%MIDI program 13'];
+  const absent = heads.filter((h) => !abc.includes(h));
+  if (absent.length) fail(`${file}: 生成的 ABC 缺少头部字段 ${JSON.stringify(absent)}`);
+  else ok(`${file}: ABC 头部完整（拍号推断为 ${inferMeter(parsed)}）`);
+}
+
+// ---------- 1b. notation 指令（key / bpm / meter）----------
+
+// meter 是唯一能显式覆盖拍号推断的写法，容易踩「括号里的数字被当成音符」的坑，
+// 所以固定几个用例把解析结果和生成的 M: 都钉住。
+const directiveCases = [
+  {
+    name: 'meter(3/4) 显式拍号',
+    text: "/key(C) meter(3/4) bpm90\n1_2_3_ 4_5_6_ | 1'_7_6_ 5- |",
+    parsedMeter: '3/4', meter: '3/4', notes: 10, bpm: 90, key: 'C',
+  },
+  {
+    name: '不写 meter 时按小节拍数反推（2/4）',
+    text: '/key(C)\n1 2 | 3 4 |',
+    parsedMeter: null, meter: '2/4', notes: 4, bpm: null, key: 'C',
+  },
+  {
+    name: 'meter(6/8) 原样保留',
+    text: '/key(G) meter(6/8)\n1_2_3_ 4_5_6_ | 1_2_3_ 4_5_6_ |',
+    parsedMeter: '6/8', meter: '6/8', notes: 12, bpm: null, key: 'G',
+  },
+];
+
+for (const c of directiveCases) {
+  const parsed = parseNotation(c.text);
+  const abc = toAbc(parsed, { title: 't', program: 13 });
+  const mLine = /^M:(.+)$/m.exec(abc);
+  const problems = [];
+  if (parsed.meter !== c.parsedMeter) problems.push(`parsed.meter=${parsed.meter}`);
+  if (inferMeter(parsed) !== c.meter) problems.push(`inferMeter=${inferMeter(parsed)}`);
+  if (!mLine || mLine[1] !== c.meter) problems.push(`M:${mLine && mLine[1]}`);
+  if (parsed.notes.length !== c.notes) problems.push(`音符 ${parsed.notes.length} ≠ ${c.notes}（指令里的数字被当成音符了？）`);
+  if ((parsed.bpm || null) !== c.bpm) problems.push(`bpm=${parsed.bpm}`);
+  if (parsed.key !== c.key) problems.push(`key=${parsed.key}`);
+  if (problems.length) fail(`notation 指令｜${c.name}: ${problems.join(', ')}`);
+  else ok(`notation 指令｜${c.name}`);
 }
 
 // ---------- 2. index.json 一致性 ----------
@@ -419,8 +459,10 @@ const urls = [
   '/assets/css/base.css',
   '/assets/css/list.css',
   '/assets/css/score.css',
+  '/assets/js/abc.js',
   '/assets/js/data.js',
   '/assets/js/list.js',
+  '/assets/js/notation.js',
   '/assets/js/player.js',
   '/assets/js/score.js',
   '/data/scores/index.json',

@@ -4,13 +4,8 @@
   "composer": "莫扎特 改编",
   "subtitle": "Twinkle Twinkle Little Star",
   "difficulty": "入门",
-  "tags": ["儿歌"],
-  "notation": "key(C) bpm88\n1155|665-|4433|221-|\nL:一闪一闪亮晶晶满天都是小星星\n5544|332-|5544|332-|\nL:挂在天空放光明好像千颗小眼睛\n1155|665-|4433|221-|\nL:一闪一闪亮晶晶满天都是小星星",
-  "abc": {
-    "meter": "4/4",
-    "length": "1/4",
-    "key": "C",
-    "tempo": 88,
-    "body": "C C G G | A A G2 | F F E E | D D C2 |\nG G F F | E E D2 | G G F F | E E D2 |\nC C G G | A A G2 | F F E E | D D C2 |"
-  }
+  "tags": [
+    "儿歌"
+  ],
+  "notation": "key(C) bpm88\n1155|665-|4433|221-|\nL:一闪一闪亮晶晶满天都是小星星\n5544|332-|5544|332-|\nL:挂在天空放光明好像千颗小眼睛\n1155|665-|4433|221-|\nL:一闪一闪亮晶晶满天都是小星星"
 }
