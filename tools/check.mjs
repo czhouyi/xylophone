@@ -253,6 +253,52 @@ else {
   else fail(`停止：位置 ${p.currentTime()}，state=${p.state}`);
 }
 
+// ---------- 3c-3. iOS 音频会话：播放前必须声明 playback ----------
+// iOS 上 Web Audio 默认走 ambient 类别，会被手机侧边的静音开关掉：
+// 页面照常显示“正在播放”、Safari 亮着扬声器图标、进度也在走，但一点声音都没有。
+// 用假 navigator 驱动真实代码，把「播放时声明 playback」这条钉住。
+
+{
+  const withSession = async (session) => {
+    const pl = new ScorePlayer({ buildAbc: () => '' });
+    pl.audioContext = { state: 'running', resume: async () => {}, get currentTime() { return 0; } };
+    pl.synth = { start() {}, stop() {}, pause() {}, resume() {} };
+    pl.primed = true;
+    globalThis.navigator = session === null ? {} : { audioSession: session };
+    await pl.play();
+  };
+
+  const session = { type: 'auto' };
+  await withSession(session);
+  if (session.type === 'playback') ok('iOS 音频会话：播放时声明为 playback（不受静音开关影响）');
+  else fail(`iOS 音频会话：播放后 type=${session.type}，期望 playback`);
+
+  // 没有 audioSession 的浏览器（桌面 Chrome / Node）不能让播放垮掉
+  let survived = true;
+  try { await withSession(null); } catch (err) { survived = false; }
+  delete globalThis.navigator;
+  if (survived) ok('没有 audioSession 的浏览器：播放照常，不抛错');
+  else fail('没有 audioSession 的浏览器：play() 抛错了');
+}
+
+// iOS 专有的 interrupted 状态（切后台 / 来电 / 锁屏后）：不是 running 就得恢复上下文
+{
+  const pl = new ScorePlayer({ buildAbc: () => '' });
+  let resumed = 0;
+  pl.audioContext = {
+    state: 'interrupted',
+    resume: async () => { resumed += 1; pl.audioContext.state = 'running'; },
+    get currentTime() { return 0; },
+  };
+  pl.abcjs = { renderAbc: () => [{}] };
+  pl.hiddenDiv = {};
+  pl.synth = { init: async () => {}, prime: async () => {}, start() {}, stop() {}, pause() {}, resume() {} };
+  pl.primed = false;
+  await pl.play();
+  if (resumed === 1) ok('iOS interrupted 状态：播放前恢复上下文（不只认 suspended）');
+  else fail(`iOS interrupted 状态：resume 调用了 ${resumed} 次，期望 1`);
+}
+
 // 播放到底：状态要收尾，不能一直停在“正在播放…”
 {
   let status = '';

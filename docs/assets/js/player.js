@@ -65,6 +65,26 @@ export class ScorePlayer {
     return this;
   }
 
+  /**
+   * 声明音频会话类型（iOS 专有 API，Safari 16.4+ / iOS 17+）。
+   *
+   * iOS 上 Web Audio 默认走 `ambient` 类别，**会被手机侧边的静音开关掐掉**：
+   * 页面照常显示“正在播放”、Safari 也亮着扬声器图标、进度条也在走，
+   * 但一点声音都出不来（WebKit bug 237322：By default the type is ambient
+   * and so audio will be muted if the phone is muted）。
+   * 声明成 `playback` 就按媒体播放处理，与视频 / 音乐播放器一致，不受静音开关影响。
+   *
+   * 桌面浏览器、旧 Safari、Node 没有这个 API，直接跳过。
+   */
+  usePlaybackSession() {
+    if (typeof navigator === 'undefined' || !navigator.audioSession) return;
+    try {
+      navigator.audioSession.type = 'playback';
+    } catch (err) {
+      // 只读或未实现：不影响播放，忽略
+    }
+  }
+
   resetSynth() {
     if (this.abcjs) {
       this.synth = new this.abcjs.synth.CreateSynth();
@@ -95,6 +115,9 @@ export class ScorePlayer {
   }
 
   async play() {
+    // 每次播放都声明一次：系统有可能把它重置回默认类别
+    this.usePlaybackSession();
+
     if (!this.primed) {
       this.onStatus('正在加载音色并预渲染…');
 
@@ -102,8 +125,14 @@ export class ScorePlayer {
         const AudioCtx = window.AudioContext || window.webkitAudioContext;
         this.audioContext = new AudioCtx();
       }
-      if (this.audioContext.state === 'suspended') {
-        await this.audioContext.resume();
+      // 不能只认 'suspended'：iOS 在切后台 / 来电 / 锁屏之后会把 AudioContext
+      // 置成它专有的 'interrupted'，只判断 'suspended' 会让之后再播放永远没声音。
+      if (this.audioContext.state !== 'running') {
+        try {
+          await this.audioContext.resume();
+        } catch (err) {
+          console.warn('音频上下文恢复失败:', err);
+        }
       }
 
       if (!this.visualObj) {
