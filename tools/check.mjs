@@ -17,7 +17,7 @@ import { fileURLToPath } from 'node:url';
 
 // 复用站点自己的解析器做校验，保证"校验的"就是"页面渲染的"
 import {
-  parseNotation, renderNotation, buildTimeline, paintProgress, resetProgress, DEFAULT_BPM,
+  parseNotation, renderNotation, buildTimeline, paintProgress, resetProgress, DEFAULT_BPM, describeSkipped,
 } from '../docs/assets/js/notation.js';
 import { buildBody, inferMeter, toAbc } from '../docs/assets/js/abc.js';
 import { ScorePlayer } from '../docs/assets/js/player.js';
@@ -76,6 +76,7 @@ for (const meta of metaList) {
   if (metaIds.has(id)) problems.push('id 重复');
   metaIds.add(id);
   if (!meta.title) problems.push('缺少 title');
+  if (typeof meta.artist !== 'string') problems.push('artist 应为字符串（没有就写空串）');
   if (typeof meta.composer !== 'string') problems.push('composer 应为字符串（没有就写空串）');
   if (typeof meta.lyricist !== 'string') problems.push('lyricist 应为字符串（没有就写空串）');
   if ('notation' in meta) problems.push('meta 里不该再存 notation（谱面请放 <id>.jianpu）');
@@ -183,6 +184,48 @@ for (const c of directiveCases) {
   } else {
     fail(`速度：Q: 得到 ${q(60)} / ${q(150)} / ${q(undefined)}，期望 60 / 150 / ${DEFAULT_BPM}`);
   }
+}
+
+// ---------- 1c. 认不出来的字符要被记下来 ----------
+// 解析器对认不出的字符是「跳过」而不是报错：粘进来的谱面不会因为一两个怪字符就整行作废。
+// 但跳过是静默的，时值会惄惄少掉（比如 `-` 写在音符后面却隔了个空格），
+// 所以 parseNotation 把跳过的字符（带行号）一并返回，详情页的「临时改谱」面板用它提醒。
+
+{
+  const cases = [
+    { name: '正常写法', text: '/key(C)\n1_ 2_ 3- | 5 |', expect: [] },
+    { name: '孤立的 - 与 _', text: '/key(C)\n1 2 -_3 |', expect: [{ line: 2, text: '-_' }] },
+    { name: '孤立的 -（两侧都有空格）', text: '/key(C)\n1_2_|3 - 4|', expect: [{ line: 2, text: '-' }] },
+    { name: '指令行的括号不算被跳过', text: '/key(C) meter(3/4)\n1_2_3_ |', expect: [] },
+  ];
+  for (const c of cases) {
+    const parsed = parseNotation(c.text);
+    const got = parsed.skipped || [];
+    const same = got.length === c.expect.length
+      && got.every((s, i) => s.line === c.expect[i].line && s.text === c.expect[i].text);
+    if (same) ok(`认不出的字符｜${c.name}：记下 ${got.length} 处`);
+    else fail(`认不出的字符｜${c.name}：得到 ${JSON.stringify(got)}，期望 ${JSON.stringify(c.expect)}`);
+  }
+
+  // 提示文案要说清楚「几处、在哪几行」
+  const tip = describeSkipped([{ line: 5, text: '-_' }, { line: 7, text: '-=.' }]);
+  if (tip.includes('2 处') && tip.includes('第 5 行') && tip.includes('第 7 行')) {
+    ok(`认不出的字符｜提示文案：${tip}`);
+  } else {
+    fail(`认不出的字符｜提示文案不对：${tip}`);
+  }
+  if (describeSkipped([]) === '' && describeSkipped(undefined) === '') {
+    ok('认不出的字符｜没有问题时提示为空串');
+  } else {
+    fail('认不出的字符｜没有问题时该返回空串');
+  }
+
+  // 现有谱面里有没有这类字符：有就列出来（不是失败，只是提醒该修）
+  const skippedScores = parsedScores
+    .filter(({ parsed }) => (parsed.skipped || []).length)
+    .map(({ label, parsed }) => `${label}(${parsed.skipped.length})`);
+  if (skippedScores.length) console.log(`note  谱面里有认不出的字符：${skippedScores.join(', ')}`);
+  else ok('所有谱面都没有认不出的字符');
 }
 
 // ---------- 2. meta 与谱面文件双向一致 ----------

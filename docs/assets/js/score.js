@@ -11,7 +11,7 @@
 
 import { loadScore, getScoreIdFromUrl, scoreTitle, scoreByline } from './data.js';
 import { ScorePlayer } from './player.js';
-import { parseNotation, renderNotation, buildTimeline, startProgress, DEFAULT_BPM } from './notation.js';
+import { parseNotation, renderNotation, buildTimeline, startProgress, DEFAULT_BPM, describeSkipped } from './notation.js';
 import { toAbc } from './abc.js';
 
 const els = {
@@ -93,8 +93,16 @@ function lyricProblems(parsed) {
 
 function describeParsed(parsed) {
   const head = `${parsed.notes.length} 个音符 · ${parsed.lines.length} 行 · ${parsed.key || 'C'} 调`;
+  const parts = [];
+
   const problems = lyricProblems(parsed);
-  return problems.length ? `${head}；歌词对不上：${problems.join('，')}` : `${head}；歌词逐行对齐`;
+  parts.push(problems.length ? `歌词对不上：${problems.join('，')}` : '歌词逐行对齐');
+
+  // 认不出来的字符不报错但会静默丢时值，这里明确说出来（附行号）
+  const skipped = describeSkipped(parsed.skipped);
+  if (skipped) parts.push(skipped);
+
+  return `${head}；${parts.join('；')}`;
 }
 
 /**

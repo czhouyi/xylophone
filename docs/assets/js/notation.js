@@ -101,9 +101,18 @@ function readBar(text, start) {
   return { item: { kind: 'bar', style: kind }, end: i };
 }
 
-/** 解析一行音符 */
+/**
+ * 解析一行音符。
+ *
+ * 认不出来的字符是「跳过」而不是报错，这样粘进来的谱面不会因为一两个怪字符就整行作废。
+ * 但跳过是静默的，时值会悄悄少掉（比如把 `-` 写在音符后面却隔了个空格），
+ * 所以这里把跳过的字符记下来一并返回，交给编辑器提示。
+ *
+ * @returns {{items: Array, skipped: string}} skipped 是这一行里没认出来的字符
+ */
 function readMusicLine(text) {
   const items = [];
+  let skipped = '';
   let i = 0;
   while (i < text.length) {
     const ch = text[i];
@@ -115,9 +124,10 @@ function readMusicLine(text) {
     const read = readNote(text, i);
     if (read) { items.push(read.note); i = read.end; continue; }
 
-    i += 1; // 无法识别就跳过
+    skipped += ch;
+    i += 1; // 无法识别：跳过，但记下来
   }
-  return items;
+  return { items, skipped };
 }
 
 /**
@@ -181,14 +191,18 @@ function splitLyric(text) {
 
 /**
  * 解析整份谱面。
- * @returns {{key: string|null, bpm: number|null, meter: string|null, lines: Array, notes: Array}}
+ * @returns {{key: string|null, bpm: number|null, meter: string|null, lines: Array, notes: Array,
+ *            skipped: Array<{line: number, text: string}>}}
+ *   skipped 是认不出来、被静默跳过的字符（带行号），供编辑器提示；正常谱面为空数组。
  */
 export function parseNotation(text) {
   const lines = [];
+  const skippedChars = [];
   const state = { key: null, bpm: null, meter: null };
   let pendingMusic = null; // 等待配对歌词的音乐行
 
-  for (const raw of text.split(/\r?\n/)) {
+  const rawLines = text.split(/\r?\n/);
+  for (const [index, raw] of rawLines.entries()) {
     const trimmed = raw.trim();
     if (!trimmed) continue;
 
@@ -201,7 +215,8 @@ export function parseNotation(text) {
     }
 
     const line = stripDirectives(trimmed, state);
-    const items = readMusicLine(line);
+    const { items, skipped } = readMusicLine(line);
+    if (skipped) skippedChars.push({ line: index + 1, text: skipped });
     if (items.length) {
       const entry = { items, lyric: [] };
       lines.push(entry);
@@ -224,7 +239,28 @@ export function parseNotation(text) {
     }
   }
 
-  return { key: state.key, bpm: state.bpm, meter: state.meter, lines, notes };
+  return {
+    key: state.key,
+    bpm: state.bpm,
+    meter: state.meter,
+    lines,
+    notes,
+    skipped: skippedChars,
+  };
+}
+
+/**
+ * 把「被跳过的字符」整理成一句给用户看的提示（详情页的临时改谱面板用）。
+ * 这类字符不报错但会让那一处白白少掉时值，光看谱面看不出来，所以要说清楚在哪一行。
+ *
+ * @param {Array<{line: number, text: string}>} skipped parseNotation 产出的 skipped
+ * @returns {string} 没有跳过的字符时返回空串
+ */
+export function describeSkipped(skipped) {
+  if (!skipped || !skipped.length) return '';
+  const shown = skipped.slice(0, 3).map((s) => `第 ${s.line} 行「${s.text}」`).join('、');
+  const more = skipped.length > 3 ? ' …' : '';
+  return `${skipped.length} 处符号没认出来、会被忽略：${shown}${more}`;
 }
 
 /* ---------- 时间轴 ---------- */

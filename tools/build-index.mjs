@@ -80,6 +80,7 @@ for (const meta of scores) {
     id,
     title: meta.title || id,
     subtitle: meta.subtitle || '',
+    artist: meta.artist || '',
     composer: meta.composer || '',
     lyricist: meta.lyricist || '',
     difficulty: meta.difficulty || '',

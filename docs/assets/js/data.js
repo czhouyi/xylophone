@@ -112,16 +112,22 @@ export function scoreTitle(score) {
 }
 
 /**
- * 取展示用署名：曲、词分开写，缺哪个就省哪个。
- *   - 词曲都有 → 「曲：段福培　词：盛茹茵」
- *   - 只有曲   → 原样显示（「莫扎特 改编」「佚名」）
- *   - 只有词   → 「词：田汉」
+ * 取展示用署名：唱、曲、词分开写，缺哪个就省哪个。
+ *   - 唱曲词都有 → 「唱：陈奕迅　曲：陈辉阳　词：林夕」
+ *   - 词曲都有   → 「曲：段福培　词：盛茹茵」
+ *   - 只有曲     → 原样显示（「莫扎特 改编」「佚名」）
+ *   - 只有词     → 「词：田汉」
  */
 export function scoreByline(score) {
+  const artist = (score && score.artist) || '';
   const composer = (score && score.composer) || '';
   const lyricist = (score && score.lyricist) || '';
-  if (composer && lyricist) return `曲：${composer}　词：${lyricist}`;
-  if (composer) return String(composer);
-  if (lyricist) return `词：${lyricist}`;
-  return '';
+
+  let credit = '';
+  if (composer && lyricist) credit = `曲：${composer}　词：${lyricist}`;
+  else if (composer) credit = String(composer);
+  else if (lyricist) credit = `词：${lyricist}`;
+
+  if (!artist) return credit;
+  return credit ? `唱：${artist}　${credit}` : `唱：${artist}`;
 }
