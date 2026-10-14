@@ -471,25 +471,22 @@ function drawNote(note, x, links, markRange) {
   const digitX = contentX + accidentalW + DIGIT_W / 2;
 
   // 高亮块（播放三态的背景）罩住整段内容：数字连同它的升降号、延音杠、附点。
-  // 一个音带一串延音时（`6 - - -`），整段共用同一块（见 unitMarkRanges），
-  // 所以那几个字符会一起亮；宽度不超过这一段占的版面，免得和邻居的块挤在一起。
-  // （默认透明，播放时由 CSS 上色）
-  const span = markRange || {
-    left: contentX,
-    right: contentX + contentW,
-    slotLeft: x,
-    slotRight: x + slotW,
-  };
-  const markW = Math.min((span.right - span.left) + MARK_PAD * 2, span.slotRight - span.slotLeft);
-  const mark = el('rect', {
-    x: (span.left + span.right) / 2 - markW / 2,
-    y: BASE_Y - DIGIT_SIZE - 12,
-    width: markW,
-    height: DIGIT_SIZE + 26,
-    rx: 3,
-    class: 'nt-mark',
-  });
-  group.appendChild(mark);
+  // 一段延音只在它的「头」上画这一块（见 unitMarkRanges）：组内其它字符拿到的
+  // markRange 是 null，不画——它们的块和头的完全重合，而这个 <g> 画在后面，
+  // 上色后会盖住前面那个数字（`6_--` 里的 `6` 就是这么不见的）。
+  // 宽度不超过这一段占的版面，免得和邻居的块挤在一起。（默认透明，播放时由 CSS 上色）
+  if (markRange) {
+    const markW = Math.min((markRange.right - markRange.left) + MARK_PAD * 2,
+      markRange.slotRight - markRange.slotLeft);
+    group.appendChild(el('rect', {
+      x: (markRange.left + markRange.right) / 2 - markW / 2,
+      y: BASE_Y - DIGIT_SIZE - 12,
+      width: markW,
+      height: DIGIT_SIZE + 26,
+      rx: 3,
+      class: 'nt-mark',
+    }));
+  }
 
   const isRest = note.pitch === '0';
 
@@ -584,11 +581,14 @@ function drawNote(note, x, links, markRange) {
  * 算出每个音符该用哪一块高亮块。
  *
  * 一个音连同紧跟在它后面的延音（`6 - - -`）算一个单元，共用一块：播放时整段一起亮，
- * 简谱里那本来就是一个音。组内每个音符都拿到同一块（互相重合），从哪个字符看过去都是
- * 同一个底色。
+ * 简谱里那本来就是一个音。
+ *
+ * 块只给单元的「头」——组内其它字符返回 null。这不是省事：块是矩形的，而组内每个
+ * 字符都在各自的 <g> 里、按先后顺序绘制，如果大家都画一块重叠的，后画的就会盖住
+ * 前面的数字（`6_--` 里的 `6` 会消失）。
  *
  * @param {Array} measured 一行里的条目（需已填好 x / contentX / contentW / width）
- * @returns {Array<object|null>} 与 measured 一一对应；小节线一类非音符项为 null
+ * @returns {Array<object|null>} 与 measured 一一对应；只有单元头有值，其余为 null
  */
 function unitMarkRanges(measured) {
   const head = new Array(measured.length).fill(-1);  // 每一项所属单元的起点下标
@@ -602,19 +602,18 @@ function unitMarkRanges(measured) {
 
   const ranges = new Array(measured.length).fill(null);
   for (let i = 0; i < measured.length; i += 1) {
-    if (head[i] < 0) continue;
-    const m = measured[i];
-    const r = ranges[head[i]] || {
+    if (head[i] !== i) continue;   // 只算单元头；组内其它字符的块由头代表
+    const r = {
       left: Infinity, right: -Infinity, slotLeft: Infinity, slotRight: -Infinity,
     };
-    r.left = Math.min(r.left, m.contentX);
-    r.right = Math.max(r.right, m.contentX + m.contentW);
-    r.slotLeft = Math.min(r.slotLeft, m.x);
-    r.slotRight = Math.max(r.slotRight, m.x + m.width);
-    ranges[head[i]] = r;
-  }
-  for (let i = 0; i < measured.length; i += 1) {
-    if (head[i] >= 0) ranges[i] = ranges[head[i]];
+    for (let j = i; j < measured.length && head[j] === i; j += 1) {
+      const m = measured[j];
+      r.left = Math.min(r.left, m.contentX);
+      r.right = Math.max(r.right, m.contentX + m.contentW);
+      r.slotLeft = Math.min(r.slotLeft, m.x);
+      r.slotRight = Math.max(r.slotRight, m.x + m.width);
+    }
+    ranges[i] = r;
   }
   return ranges;
 }

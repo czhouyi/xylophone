@@ -658,10 +658,11 @@ try {
     const dashes = textsOf(box).filter((t) => t === '-').length;
     const marked = rendered.noteEls
       .filter((g) => g.childNodes.some((c) => c.classList && c.classList.contains('nt-mark'))).length;
-    if (rendered.noteEls.length === 4 && dashes === 2 && marked === 4) {
-      ok('延音横杠｜渲染：2 个独立横杠节点，4 个音符各自带高亮块（同组的块互相重合）');
+    // 块只画在单元的头上（5 和 3 各一块，两个 - 不画）
+    if (rendered.noteEls.length === 4 && dashes === 2 && marked === 2) {
+      ok('延音横杠｜渲染：2 个独立横杠节点，高亮块只画在单元头上（5 / 3 各一块）');
     } else {
-      fail(`延音横杠｜渲染：节点 ${rendered.noteEls.length} 个、横杠 ${dashes} 个、带高亮块 ${marked} 个，期望 4 / 2 / 4`);
+      fail(`延音横杠｜渲染：节点 ${rendered.noteEls.length} 个、横杠 ${dashes} 个、带高亮块 ${marked} 个，期望 4 / 2 / 2`);
     }
   }
 
@@ -729,23 +730,45 @@ try {
     }
   }
 
-  // 同组的几个字符拿到同一块高亮（互相重合），隔壁的音符另起一块
+  // 高亮块只画在单元的头上，宽度罩住整段；组内其它字符不重复画
   {
     const parsed = parseNotation('/key(C)\n6 - - 3|');
     const box = new StubNode('div');
     const { noteEls } = renderNotation(box, parsed);
+    const isMark = (c) => c.classList && c.classList.contains('nt-mark');
     const rectOf = (g) => {
-      const r = g.childNodes.find((c) => c.classList && c.classList.contains('nt-mark'));
-      return { x: Number(r.getAttribute('x')), w: Number(r.getAttribute('width')) };
+      const r = g.childNodes.find(isMark);
+      return r ? { x: Number(r.getAttribute('x')), w: Number(r.getAttribute('width')) } : null;
     };
-    const group = [rectOf(noteEls[0]), rectOf(noteEls[1]), rectOf(noteEls[2])];
-    const same = group.every((r) => r.x === group[0].x && r.w === group[0].w);
+    const head = rectOf(noteEls[0]);
     const solo = rectOf(noteEls[3]);
-    const distinct = solo.x !== group[0].x && solo.w < group[0].w;
-    if (parsed.notes.length === 4 && same && distinct) {
-      ok(`延音横杠｜高亮块：6 - - 共用一块（宽 ${group[0].w}），3 另起一块（宽 ${solo.w}）`);
+    const others = [rectOf(noteEls[1]), rectOf(noteEls[2])];
+    const onlyHead = others.every((r) => r === null) && head && solo;
+    if (parsed.notes.length === 4 && onlyHead && head.w > solo.w) {
+      ok(`延音横杠｜高亮块：6 那块宽 ${head.w} 罩住 6 - -，两个 - 不重复画；3 另起一块（宽 ${solo.w}）`);
     } else {
-      fail(`延音横杠｜高亮块：${JSON.stringify(group)} vs 单音符 ${JSON.stringify(solo)}`);
+      fail(`延音横杠｜高亮块：head=${JSON.stringify(head)} others=${JSON.stringify(others)} solo=${JSON.stringify(solo)}`);
+    }
+  }
+
+  // 回归：`51_6_--` 里 `6` 不能被自己的高亮块盖掉。
+  // 块是矩形，和数字在同一个 <g> 里：块先画、数字后画，所以数字一定在块之上；
+  // 而组内靠后的 `-` 不重复画块，否则它画在后面，会压到 `6` 头上。（曾经就败在这里）
+  {
+    const parsed = parseNotation('/key(C)\n51_6_--|');
+    const box = new StubNode('div');
+    const { noteEls } = renderNotation(box, parsed);
+    const isMark = (c) => c.classList && c.classList.contains('nt-mark');
+    const isDigit = (c) => c.classList && c.classList.contains('nt-digit');
+    const six = noteEls[2].childNodes;    // `6_`：本段延音的头
+    const dash = noteEls[3].childNodes;   // 后面的 `-`：跟着亮，但不重复画块
+    const markAt = six.findIndex(isMark);
+    const digitAt = six.findIndex(isDigit);
+    const okLayers = markAt === 0 && digitAt === 1 && !dash.some(isMark);
+    if (parsed.notes.length === 4 && okLayers) {
+      ok('延音横杠｜回归：6_-- 的块画在 6 下面，后面的 - 不重复画块');
+    } else {
+      fail(`延音横杠｜回归：6 的 markAt=${markAt} digitAt=${digitAt}，- 有块=${dash.some(isMark)}`);
     }
   }
 } finally {
