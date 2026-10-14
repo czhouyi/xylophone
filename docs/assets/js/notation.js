@@ -548,9 +548,14 @@ export function renderNotation(container, parsed) {
     }
     if (!measured.length) continue;
 
-    // 记下每个音符的起拍位置，供减时线分组用
+    // 记下每个音符在小节内的起拍位置，供减时线分组用。
+    // 必须在小节线处归零：sameBeat() 是拿 Math.floor(startBeat) 判「同一拍」的，
+    // 如果一路累加下去，拍号就是全行的绝对拍位，上一小节末尾的音符会和
+    // 下一小节开头的音符被误判成同一拍（连成一条线），而小节内的音符反而
+    // 可能被判成不同拍（断开）。
     let beat = 0;
     for (const entry of measured) {
+      if (entry.item.kind === 'bar') { beat = 0; continue; }
       if (entry.item.kind !== 'note') continue;
       entry.startBeat = beat;
       beat += entry.item.beat;

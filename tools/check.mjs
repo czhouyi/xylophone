@@ -524,6 +524,29 @@ try {
       else fail(`播放进度三态 ${file}｜${why}：期望 past=${past} cur=${cur}，得到 ${JSON.stringify(got)}`);
     }
   }
+
+  // 减时线分组的「同一拍」必须按小节内的拍位算，不能整行累加。
+  // 第一小节故意写成 1.75 拍：整行累加会把下一小节的 3_ 0_ 1_ 0_ 算成
+  // 1.75 / 2.25 / 2.75 / 3.25 拍，floor 之后变成「3 | 01 | 0」。
+  {
+    const probe = parseNotation('/key(C)\n3_. 1= 5=5=5= | 3_ 0_ 1_ 0_ |');
+    const box = new StubNode('div');
+    renderNotation(box, probe);
+    const segs = collectLines(box)
+      .map((l) => ({
+        x1: Number(l.getAttribute('x1')),
+        x2: Number(l.getAttribute('x2')),
+        y: Number(l.getAttribute('y1')),
+      }))
+      .sort((a, b) => a.x1 - b.x1 || a.y - b.y);
+    const tail = segs.slice(-4);
+    const joins = tail.slice(1).map((s, i) => Math.abs(s.x1 - tail[i].x2) < 0.001);
+    if (tail.length === 4 && joins[0] === true && joins[1] === false && joins[2] === true) {
+      ok('减时线：拍位按小节重新起算（30 相连 / 01 断开 / 10 相连）');
+    } else {
+      fail(`减时线分组的拍位：相接 ${JSON.stringify(joins)}，期望 [true,false,true]`);
+    }
+  }
 } finally {
   globalThis.document = realDocument;
 }
