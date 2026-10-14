@@ -115,14 +115,26 @@ export function inferMeter(parsed, fallback = FALLBACK_METER) {
 /**
  * 生成 ABC 的谱面正文（不含 X/T/M/L/Q/K 这些头部字段）。
  * 单独导出是为了让自检能对着它做校验。
+ *
+ * 简谱里的延音横杠（音高 '-'）在 ABC 里用 tie 表达，即 `C2- C2`。
+ * abcjs 的合成器会把 tie 合并成一个长音（核对过它生成的 MIDI：
+ * `C2-C2|` 与 `C4|` 的 MIDI 完全一致，而 `C2 C2|` 不同），所以听感与写成
+ * 单个长音符等价。用 tie 而不是直接合并时值，是为了让 ABC 的音符数（以及小节
+ * 里的拍数）与简谱保持一一对应。
  */
 export function buildBody(parsed, key) {
   const scale = SCALE[key] || SCALE.C;
   const signature = KEY_SIGNATURE[key] || {};
-  const lines = [];
+  const lines = [];   // 每行的 ABC 片段；tie 要回头给上一个片段补 '-', 所以先攒着不 join
+
+  // 延音要延续「上一个音」，所以记着上一次生成的音名和它在哪一行哪一项。
+  // 简谱里一个音可以跨小节线延续，所以这里不因小节线或换行而重置。
+  let prev = null;    // { line, part, token }；token 是不带长度的 ABC 主体，休止符为 'z'
 
   for (const line of parsed.lines) {
     const parts = [];
+    lines.push(parts);
+
     for (const item of line.items) {
       if (item.kind === 'bar') {
         parts.push(item.style === '||' ? '||' : item.style === '|]' ? '|]' : '|');
@@ -130,8 +142,20 @@ export function buildBody(parsed, key) {
       }
 
       const length = abcLength(item.beat);
+
+      if (item.pitch === '-') {
+        // 谱面一开头就是 '-'：没有可延续的音，退化成等长休止（ABC 里没法凭空延音）。
+        // 休止符不写 tie —— `z2- z2` 没有意义。
+        const token = prev ? prev.token : 'z';
+        if (prev && prev.token !== 'z') lines[prev.line][prev.part] += '-';
+        parts.push(token + length);
+        prev = { line: lines.length - 1, part: parts.length - 1, token };
+        continue;
+      }
+
       if (item.pitch === '0') {
         parts.push('z' + length);
+        prev = { line: lines.length - 1, part: parts.length - 1, token: 'z' };
         continue;
       }
 
@@ -149,12 +173,13 @@ export function buildBody(parsed, key) {
         : ','.repeat(-item.octave);
       const letter = item.octave >= 1 ? base.letter.toLowerCase() : base.letter;
 
-      parts.push(mark + letter + octaveMarks + length);
+      const token = mark + letter + octaveMarks;
+      parts.push(token + length);
+      prev = { line: lines.length - 1, part: parts.length - 1, token };
     }
-    lines.push(parts.join(' '));
   }
 
-  return lines.join('\n');
+  return lines.map((parts) => parts.join(' ')).join('\n');
 }
 
 /**

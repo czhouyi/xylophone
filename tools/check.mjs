@@ -112,7 +112,7 @@ for (const meta of metaList) {
   let mismatched = 0;
   for (const line of parsed.lines) {
     if (!line.lyric.length) continue;
-    const singable = line.items.filter((it) => it.kind === 'note' && it.pitch !== '0').length;
+    const singable = line.items.filter((it) => it.kind === 'note' && it.pitch !== '0' && it.pitch !== '-').length;
     if (line.lyric.length !== singable) mismatched += 1;
   }
   if (mismatched) fail(`${label}: ${mismatched} 行歌词与音符数不匹配`);
@@ -188,14 +188,15 @@ for (const c of directiveCases) {
 
 // ---------- 1c. 认不出来的字符要被记下来 ----------
 // 解析器对认不出的字符是「跳过」而不是报错：粘进来的谱面不会因为一两个怪字符就整行作废。
-// 但跳过是静默的，时值会惄惄少掉（比如 `-` 写在音符后面却隔了个空格），
-// 所以 parseNotation 把跳过的字符（带行号）一并返回，详情页的「临时改谱」面板用它提醒。
+// 但跳过是静默的，时值会悄悄少掉，所以 parseNotation 把跳过的字符（带行号）一并返回，
+// 详情页的「临时改谱」面板用它提醒。注意落单的 `-` 不在此列：它是合法语法（延音）。
 
 {
   const cases = [
     { name: '正常写法', text: '/key(C)\n1_ 2_ 3- | 5 |', expect: [] },
-    { name: '孤立的 - 与 _', text: '/key(C)\n1 2 -_3 |', expect: [{ line: 2, text: '-_' }] },
-    { name: '孤立的 -（两侧都有空格）', text: '/key(C)\n1_2_|3 - 4|', expect: [{ line: 2, text: '-' }] },
+    { name: '落单的 - 是合法延音，不再被跳过', text: '/key(C)\n1 2 -_3 |', expect: [] },
+    { name: '两侧有空格的 - 同样是合法延音', text: '/key(C)\n1_2_|3 - 4|', expect: [] },
+    { name: '真认不出的字符照旧被记下', text: '/key(C)\n1_ 2_ %3 |', expect: [{ line: 2, text: '%' }] },
     { name: '指令行的括号不算被跳过', text: '/key(C) meter(3/4)\n1_2_3_ |', expect: [] },
   ];
   for (const c of cases) {
@@ -208,7 +209,7 @@ for (const c of directiveCases) {
   }
 
   // 提示文案要说清楚「几处、在哪几行」
-  const tip = describeSkipped([{ line: 5, text: '-_' }, { line: 7, text: '-=.' }]);
+  const tip = describeSkipped([{ line: 5, text: '%' }, { line: 7, text: '~.' }]);
   if (tip.includes('2 处') && tip.includes('第 5 行') && tip.includes('第 7 行')) {
     ok(`认不出的字符｜提示文案：${tip}`);
   } else {
@@ -226,6 +227,58 @@ for (const c of directiveCases) {
     .map(({ label, parsed }) => `${label}(${parsed.skipped.length})`);
   if (skippedScores.length) console.log(`note  谱面里有认不出的字符：${skippedScores.join(', ')}`);
   else ok('所有谱面都没有认不出的字符');
+}
+
+// ---------- 1d. 延音横杠 '-' 的两种用法 ----------
+// 参照 jianpu.space 的写法：
+//   紧跟在音高后面的 '-' 是增时线，每多一个多一拍（5- 两拍、5-- 三拍）；
+//   独立的 '-' 自己就是一个音高，表示延续前一个音，并且能带自己的时值后缀
+//   （裸 '-' 一拍、'-_' 半拍、'-=' 四分之一拍——一串音里可以随意换时值）。
+// 两者都合法，都不该落进 skipped。
+
+{
+  const cases = [
+    { name: '紧贴数字：增时线', text: '/key(C)\n5--|', beats: [3] },
+    { name: '落单：整拍延音', text: '/key(C)\n5 - -|', beats: [1, 1, 1] },
+    { name: '连着写的 - 被前一个延音吃掉', text: '/key(C)\n5 --|', beats: [1, 2] },
+    { name: '落单且带减时线：半拍延音', text: '/key(C)\n2_ -= -|', beats: [0.5, 0.25, 1] },
+    { name: '跟在八度后面', text: "/key(C)\n72' -_1'_|", beats: [1, 1, 0.5, 0.5] },
+  ];
+  for (const c of cases) {
+    const parsed = parseNotation(c.text);
+    const beats = parsed.notes.map((n) => n.beat);
+    const beatsOk = beats.length === c.beats.length
+      && beats.every((b, i) => Math.abs(b - c.beats[i]) < 1e-9);
+    if (beatsOk && !(parsed.skipped || []).length) ok(`延音横杠｜${c.name}：${beats.join(' / ')} 拍`);
+    else fail(`延音横杠｜${c.name}：得到 [${beats.join(', ')}] 拍、skipped=${JSON.stringify(parsed.skipped)}，期望 [${c.beats.join(', ')}]`);
+  }
+}
+
+// 延音音符和休止符一样不占歌词位
+{
+  const parsed = parseNotation("/key(C)\n5 - 3 0|\nL: 啊 咿");
+  const singable = parsed.notes.filter((n) => n.pitch !== '0' && n.pitch !== '-').length;
+  const got = parsed.notes.filter((n) => n.lyric).map((n) => n.lyric).join('');
+  if (singable === 2 && got === '啊咿') ok(`延音横杠｜不占歌词位：可唱 ${singable} 个、歌词「${got}」`);
+  else fail(`延音横杠｜歌词槽位：可唱 ${singable} 个、歌词「${got}」，期望 2 个 / 「啊咿」`);
+}
+
+// ABC：延音写成 tie（`C- C`），音符数不受影响
+// abcjs 的合成器会把 tie 合并成一个长音，听感与单个长音一致
+{
+  const cases = [
+    { name: '音名延音（C 调的 5 是 G）', text: '/key(C)\n5 - 3|', has: /G- G/, absent: null },
+    { name: '休止符不写 tie', text: '/key(C)\n0 - 3|', has: null, absent: /z-/ },
+    { name: '开口就是 - ：无可延续，退化成休止', text: '/key(C)\n- 3|', has: /^z/, absent: null },
+  ];
+  for (const c of cases) {
+    const parsed = parseNotation(c.text);
+    const body = buildBody(parsed, 'C');
+    const tokens = body.split(/[\s|]+/).filter(Boolean).length;
+    const hit = (!c.has || c.has.test(body)) && (!c.absent || !c.absent.test(body));
+    if (hit && tokens === parsed.notes.length) ok(`延音横杠｜${c.name}：${body}`);
+    else fail(`延音横杠｜${c.name}：得到 '${body}'（${tokens} 个 token，期望 ${parsed.notes.length}）`);
+  }
 }
 
 // ---------- 2. meta 与谱面文件双向一致 ----------
@@ -588,6 +641,27 @@ try {
       ok('减时线：拍位按小节重新起算（30 相连 / 01 断开 / 10 相连）');
     } else {
       fail(`减时线分组的拍位：相接 ${JSON.stringify(joins)}，期望 [true,false,true]`);
+    }
+  }
+
+  // 延音横杠渲染成独立的音符节点：有自己的高亮块，画出来是一根横杠而不是数字。
+  // 播放进度就是靠这些节点逐个点亮的，所以它是独立节点而不是「前一个数字的一部分」。
+  {
+    const probe = parseNotation('/key(C)\n5 - - 3|');
+    const box = new StubNode('div');
+    const rendered = renderNotation(box, probe);
+    const textsOf = (node, out = []) => {
+      if (node.nodeName === 'text') out.push(node.textContent);
+      for (const c of node.childNodes || []) textsOf(c, out);
+      return out;
+    };
+    const dashes = textsOf(box).filter((t) => t === '-').length;
+    const marked = rendered.noteEls
+      .filter((g) => g.childNodes.some((c) => c.classList && c.classList.contains('nt-mark'))).length;
+    if (rendered.noteEls.length === 4 && dashes === 2 && marked === 4) {
+      ok('延音横杠｜渲染：2 个独立横杠节点，4 个音符各自带高亮块');
+    } else {
+      fail(`延音横杠｜渲染：节点 ${rendered.noteEls.length} 个、横杠 ${dashes} 个、带高亮块 ${marked} 个，期望 4 / 2 / 4`);
     }
   }
 } finally {

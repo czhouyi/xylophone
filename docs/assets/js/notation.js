@@ -7,7 +7,8 @@
  *   #1  b2  n3        升 / 降 / 还原（前缀，可叠写，如 ##1）
  *   1'  1,            高八度 / 低八度（后缀，可叠写，如 1''）
  *   1_  1=            八分音符 / 十六分音符（后缀）
- *   1-                延长一拍（每多一个 - 再多一拍）
+ *   1-                增时线：延长一拍（每多一个 - 再多一拍）
+ *   -   -_   -=       延音：'-' 独立成音符，延续前一个音，可带自己的时值后缀
  *   1.                附点（最多两个）
  *   |  ||  |]         小节线 / 双纵线 / 终止线
  *   L:歌词            歌词行；一个中文字对一个音符，* 表示该音符不填词，
@@ -40,7 +41,11 @@ const LINE_H = 96;       // 单行高度
 
 /**
  * 从 text[start] 起读一个音符记号。
- * 解析顺序：升降号 → 数字 → 八度 → 时值 → 附点
+ * 解析顺序：升降号 → 音高 → 八度 → 时值 → 附点
+ *
+ * 音高除 0-7 外还接受 '-'：它和数字一样是个音高，表示「延续前一个音」。
+ * 所以 `5 -`、`-_`（半拍延音）、`-=`（四分之一拍延音）都成立——见文件头。
+ *
  * @returns {{note: object, end: number}|null}
  */
 function readNote(text, start) {
@@ -50,13 +55,15 @@ function readNote(text, start) {
   while (i < text.length && '#bn'.includes(text[i])) accidental += text[i++];
 
   const digit = text[i];
-  if (digit === undefined || digit < '0' || digit > '7') return null;
+  // 数字 0-7 是音高，'-' 也是（延续前一个音），其余一律不认
+  if (digit === undefined || ((digit < '0' || digit > '7') && digit !== '-')) return null;
   i += 1;
 
   let octave = 0;
   while (text[i] === "'" || text[i] === ',') octave += text[i++] === "'" ? 1 : -1;
 
-  // '-' 表示延长，'=' / '_' 表示减时线，两者互斥
+  // 音高后面紧跟的 '-' 是增时线（每多一个多一拍），'=' / '_' 是减时线，两者互斥，
+  // 都不写就是四分音符。对延音音符（音高 '-'）这里读的是它自己的时值后缀。
   let type = 0;
   let mul = 1;
   if (text[i] === '-') {
@@ -105,8 +112,7 @@ function readBar(text, start) {
  * 解析一行音符。
  *
  * 认不出来的字符是「跳过」而不是报错，这样粘进来的谱面不会因为一两个怪字符就整行作废。
- * 但跳过是静默的，时值会悄悄少掉（比如把 `-` 写在音符后面却隔了个空格），
- * 所以这里把跳过的字符记下来一并返回，交给编辑器提示。
+ * 但跳过是静默的，时值会悄悄少掉，所以这里把跳过的字符记下来一并返回，交给编辑器提示。
  *
  * @returns {{items: Array, skipped: string}} skipped 是这一行里没认出来的字符
  */
@@ -224,13 +230,13 @@ export function parseNotation(text) {
     }
   }
 
-  // 歌词逐字分给能唱的音符（休止符 0 不占歌词位）
+  // 歌词逐字分给能唱的音符：休止符 0 和延音横杠 - 都不唱词，不占歌词位
   const notes = [];
   for (const line of lines) {
     let slot = 0;
     for (const item of line.items) {
       if (item.kind !== 'note') continue;
-      if (item.pitch !== '0') {
+      if (item.pitch !== '0' && item.pitch !== '-') {
         item.lyric = line.lyric[slot] || '';
         slot += 1;
       }
@@ -450,7 +456,8 @@ function drawNote(note, x, links) {
   group.appendChild(text(note.pitch, {
     x: digitX,
     y: BASE_Y,
-    class: isRest ? 'nt-digit nt-rest' : 'nt-digit',
+    // 延音音符画出来就是一根横杠，跟增时线（5-- 里那些）用同一套样式
+    class: isRest ? 'nt-digit nt-rest' : (note.pitch === '-' ? 'nt-tie' : 'nt-digit'),
     'font-size': DIGIT_SIZE,
     'text-anchor': 'middle',
   }));

@@ -83,7 +83,7 @@ function lyricProblems(parsed) {
   const problems = [];
   for (const [i, line] of parsed.lines.entries()) {
     if (!line.lyric.length) continue;
-    const singable = line.items.filter((it) => it.kind === 'note' && it.pitch !== '0').length;
+    const singable = line.items.filter((it) => it.kind === 'note' && it.pitch !== '0' && it.pitch !== '-').length;
     if (line.lyric.length !== singable) {
       problems.push(`第 ${i + 1} 行 ${singable} 个音 / ${line.lyric.length} 个字`);
     }
