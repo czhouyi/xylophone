@@ -20,6 +20,7 @@
  * 渲染结果是一行一个 <svg>，每个音符是一个
  * <g class="nt-note" data-i="序号">，内部含一个透明的
  * <rect class="nt-mark">；播放进度高亮（startProgress）就是给它加 class。
+ * 一个音连同紧跟它的延音共用一个 mark（见 unitMarkRanges），所以 `6 - - -` 整段一起亮。
  */
 
 /* 排版常量 */
@@ -279,17 +280,39 @@ export const DEFAULT_BPM = 120;
 
 /**
  * 按速度把拍数换算成秒，得到每个音符的 [start, end)。
+ *
+ * 一个音连同紧跟它的那串延音（`6 - - -`）算一个「高亮单元」：单元里的几个字符
+ * 共享同一个时间段，播放时会一起亮、一起变成已播放——简谱里那本来就是一个音。
+ *
  * @param {Array} notes parseNotation 产出的音符数组
  * @param {number} bpm 每分钟四分音符数
  */
 export function buildTimeline(notes, bpm) {
   const secondsPerBeat = 60 / (bpm > 0 ? bpm : DEFAULT_BPM);
-  let cursor = 0;
-  return notes.map((note) => {
-    const start = cursor;
-    cursor += note.beat * secondsPerBeat;
-    return { start, end: cursor };
-  });
+  const spans = notes.map(() => null);
+
+  let cursor = 0;      // 已经排到的时间点（秒）
+  let unitStart = 0;   // 当前单元的起始时间
+  let unit = [];       // 当前单元里的音符下标
+
+  const flush = () => {
+    for (const i of unit) spans[i] = { start: unitStart, end: cursor };
+    unit = [];
+  };
+
+  for (let i = 0; i < notes.length; i += 1) {
+    // 延音音符延续的是前一个音，所以并进当前单元；其它音符一律另起一段
+    const tieToPrev = notes[i].pitch === '-' && unit.length > 0;
+    if (!tieToPrev) {
+      flush();
+      unitStart = cursor;
+    }
+    unit.push(i);
+    cursor += notes[i].beat * secondsPerBeat;
+  }
+  flush();
+
+  return spans;
 }
 
 /* ---------- 播放进度 ---------- */
@@ -299,7 +322,8 @@ export function resetProgress(noteEls, state) {
   for (const node of noteEls) {
     if (node) node.classList.remove('past', 'current');
   }
-  state.prevIndex = -1;
+  state.prevFrom = -1;
+  state.prevTo = -1;
 }
 
 /**
@@ -308,15 +332,18 @@ export function resetProgress(noteEls, state) {
  * 不碰定时器——跨帧状态放在 state 里由调用方持有，
  * 所以测试可以逐帧确定性驱动，不用等真实的动画帧。
  *
+ * 高亮以「单元」为单位而不是单个音符：同一段延音共享一个 start（见 buildTimeline），
+ * 所以 `6 - - -` 的四个字符会一起亮、一起变成已播放，而不是挨个走一遍。
+ *
  * @param {Array<Element>} noteEls renderNotation 产出的音符 <g>
  * @param {Array<{start:number,end:number}>} timeline buildTimeline 产出的时间轴
  * @param {number|null} time 播放位置（秒）；null 表示当前没有进度（未播放 / 已停止）
- * @param {{prevTime:number, prevIndex:number}} state 跨帧状态，原地更新
+ * @param {{prevTime:number, prevFrom:number, prevTo:number}} state 跨帧状态，原地更新
  */
 export function paintProgress(noteEls, timeline, time, state) {
   if (time == null) {
     // 三态里的“未播放”：不留任何高亮
-    if (state.prevIndex !== -1) resetProgress(noteEls, state);
+    if (state.prevFrom !== -1) resetProgress(noteEls, state);
     state.prevTime = -1;
     return;
   }
@@ -325,23 +352,38 @@ export function paintProgress(noteEls, timeline, time, state) {
   if (time + 0.05 < state.prevTime) resetProgress(noteEls, state); // 时间回退：停止或重新播放
   state.prevTime = time;
 
+  // 当前落在哪一段；同单元共享 start，所以往两边扩齐就是整个单元
   let index = timeline.length;
-  for (let i = Math.max(state.prevIndex, 0); i < timeline.length; i += 1) {
+  for (let i = Math.max(state.prevFrom, 0); i < timeline.length; i += 1) {
     if (time < timeline[i].end) { index = i; break; }
   }
-  if (index === state.prevIndex) return;
 
-  // 从上一个"正在播放"到新的位置之间，统统记为已播放
-  for (let i = Math.max(state.prevIndex, 0); i < index && i < timeline.length; i += 1) {
+  let from = index;
+  let to = index;
+  if (index < timeline.length) {
+    const { start } = timeline[index];
+    while (from > 0 && timeline[from - 1].start === start) from -= 1;
+    while (to + 1 < timeline.length && timeline[to + 1].start === start) to += 1;
+  }
+
+  if (from === state.prevFrom && to === state.prevTo) return;
+
+  // 从上一个单元到当前单元之间的，统统记为已播放
+  for (let i = Math.max(state.prevFrom, 0); i < from && i < timeline.length; i += 1) {
     const node = noteEls[i];
     if (!node) continue;
     node.classList.remove('current');
     node.classList.add('past');
   }
-  if (index < timeline.length && noteEls[index]) {
-    noteEls[index].classList.add('current');
+  // 当前单元整段一起亮
+  for (let i = from; i <= to && i < timeline.length; i += 1) {
+    const node = noteEls[i];
+    if (!node) continue;
+    node.classList.remove('past');
+    node.classList.add('current');
   }
-  state.prevIndex = index;
+  state.prevFrom = from;
+  state.prevTo = to;
 }
 
 /**
@@ -353,7 +395,7 @@ export function paintProgress(noteEls, timeline, time, state) {
  * @returns {() => void} 停止函数（取消动画帧）
  */
 export function startProgress(noteEls, timeline, getTime) {
-  const state = { prevTime: -1, prevIndex: -1 };
+  const state = { prevTime: -1, prevFrom: -1, prevTo: -1 };
   let raf = 0;
 
   resetProgress(noteEls, state);
@@ -421,19 +463,26 @@ function measureNote(note) {
   return layoutNote(note).slotW;
 }
 
-function drawNote(note, x, links) {
+function drawNote(note, x, links, markRange) {
   const group = el('g', { class: 'nt-note', 'data-i': note.index });
   const { accidental, accidentalW, tieCount, contentW, slotW } = layoutNote(note);
 
   const contentX = x + (slotW - contentW) / 2;   // 内容在槽位里居中
   const digitX = contentX + accidentalW + DIGIT_W / 2;
 
-  // 高亮块只包住数字本身（升降号 + 数字）并居中于它：
-  // 延音杠、附点不参与，这样不管音符多宽，数字都正好落在块的正中。
+  // 高亮块（播放三态的背景）罩住整段内容：数字连同它的升降号、延音杠、附点。
+  // 一个音带一串延音时（`6 - - -`），整段共用同一块（见 unitMarkRanges），
+  // 所以那几个字符会一起亮；宽度不超过这一段占的版面，免得和邻居的块挤在一起。
   // （默认透明，播放时由 CSS 上色）
-  const markW = accidentalW + DIGIT_W + MARK_PAD * 2;
+  const span = markRange || {
+    left: contentX,
+    right: contentX + contentW,
+    slotLeft: x,
+    slotRight: x + slotW,
+  };
+  const markW = Math.min((span.right - span.left) + MARK_PAD * 2, span.slotRight - span.slotLeft);
   const mark = el('rect', {
-    x: digitX - markW / 2,
+    x: (span.left + span.right) / 2 - markW / 2,
     y: BASE_Y - DIGIT_SIZE - 12,
     width: markW,
     height: DIGIT_SIZE + 26,
@@ -516,10 +565,11 @@ function drawNote(note, x, links) {
     }));
   }
 
-  // 歌词
+  // 歌词：对准它唱的那个数字，而不是槽位正中。
+  // `6---` 这种一个音拖三条延音杠的，词要跟 `6` 竖着对齐。
   if (note.lyric) {
     group.appendChild(text(note.lyric, {
-      x: x + slotW / 2,
+      x: digitX,
       y: BASE_Y + 34,
       class: 'nt-lyric',
       'font-size': LYRIC_SIZE,
@@ -528,6 +578,45 @@ function drawNote(note, x, links) {
   }
 
   return group;
+}
+
+/**
+ * 算出每个音符该用哪一块高亮块。
+ *
+ * 一个音连同紧跟在它后面的延音（`6 - - -`）算一个单元，共用一块：播放时整段一起亮，
+ * 简谱里那本来就是一个音。组内每个音符都拿到同一块（互相重合），从哪个字符看过去都是
+ * 同一个底色。
+ *
+ * @param {Array} measured 一行里的条目（需已填好 x / contentX / contentW / width）
+ * @returns {Array<object|null>} 与 measured 一一对应；小节线一类非音符项为 null
+ */
+function unitMarkRanges(measured) {
+  const head = new Array(measured.length).fill(-1);  // 每一项所属单元的起点下标
+  let from = -1;
+  for (let i = 0; i < measured.length; i += 1) {
+    const item = measured[i].item;
+    if (item.kind !== 'note') { from = -1; continue; }
+    if (item.pitch === '-' && from >= 0) head[i] = from;
+    else { from = i; head[i] = i; }
+  }
+
+  const ranges = new Array(measured.length).fill(null);
+  for (let i = 0; i < measured.length; i += 1) {
+    if (head[i] < 0) continue;
+    const m = measured[i];
+    const r = ranges[head[i]] || {
+      left: Infinity, right: -Infinity, slotLeft: Infinity, slotRight: -Infinity,
+    };
+    r.left = Math.min(r.left, m.contentX);
+    r.right = Math.max(r.right, m.contentX + m.contentW);
+    r.slotLeft = Math.min(r.slotLeft, m.x);
+    r.slotRight = Math.max(r.slotRight, m.x + m.width);
+    ranges[head[i]] = r;
+  }
+  for (let i = 0; i < measured.length; i += 1) {
+    if (head[i] >= 0) ranges[i] = ranges[head[i]];
+  }
+  return ranges;
 }
 
 function drawBar(style, x) {
@@ -617,16 +706,32 @@ export function renderNotation(container, parsed) {
       viewBox: `0 0 ${Math.max(width + 8, 40)} ${LINE_H}`,
     });
 
+    // 落位：每个条目在行内的 x，以及内容（数字 + 升降号 + 延音杠 + 附点）在槽位里的位置
     let x = 4;
     for (const entry of measured) {
+      entry.x = x;
       if (entry.item.kind === 'note') {
-        const group = drawNote(entry.item, x, { left: entry.linkLeft, right: entry.linkRight });
+        const { contentW, slotW } = layoutNote(entry.item);
+        entry.contentX = x + (slotW - contentW) / 2;
+        entry.contentW = contentW;
+      }
+      x += entry.width;
+    }
+    // 高亮块：一个音连同紧跟它的延音共用一块，整段一起亮
+    const marks = unitMarkRanges(measured);
+
+    for (let i = 0; i < measured.length; i += 1) {
+      const entry = measured[i];
+      if (entry.item.kind === 'note') {
+        const group = drawNote(entry.item, entry.x, {
+          left: entry.linkLeft,
+          right: entry.linkRight,
+        }, marks[i]);
         svg.appendChild(group);
         noteEls[entry.item.index] = group;
       } else {
-        svg.appendChild(drawBar(entry.item.style, x));
+        svg.appendChild(drawBar(entry.item.style, entry.x));
       }
-      x += entry.width;
     }
 
     container.appendChild(svg);

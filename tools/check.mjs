@@ -598,7 +598,7 @@ try {
   if (firstScore) {
     const { file, parsed, noteEls } = firstScore;
     const timeline = buildTimeline(parsed.notes, parsed.bpm);
-    const state = { prevTime: -1, prevIndex: -1 };
+    const state = { prevTime: -1, prevFrom: -1, prevTo: -1 };
     resetProgress(noteEls, state);
 
     const snap = () => ({
@@ -659,9 +659,93 @@ try {
     const marked = rendered.noteEls
       .filter((g) => g.childNodes.some((c) => c.classList && c.classList.contains('nt-mark'))).length;
     if (rendered.noteEls.length === 4 && dashes === 2 && marked === 4) {
-      ok('延音横杠｜渲染：2 个独立横杠节点，4 个音符各自带高亮块');
+      ok('延音横杠｜渲染：2 个独立横杠节点，4 个音符各自带高亮块（同组的块互相重合）');
     } else {
       fail(`延音横杠｜渲染：节点 ${rendered.noteEls.length} 个、横杠 ${dashes} 个、带高亮块 ${marked} 个，期望 4 / 2 / 4`);
+    }
+  }
+
+  // 一个音拖几条延音杠时（`6---`）：歌词要跟数字竖着对齐，
+  // 高亮块要罩住整段（数字 + 延音杠），而不是只包住数字那一小格。
+  {
+    const measure = (notation) => {
+      const box = new StubNode('div');
+      const { noteEls } = renderNotation(box, parseNotation(notation));
+      const g = noteEls[0];
+      const pick = (cls) => g.childNodes.find((c) => c.classList && c.classList.contains(cls));
+      const ties = g.childNodes.filter((c) => c.classList && c.classList.contains('nt-tie'));
+      const mark = pick('nt-mark');
+      return {
+        count: noteEls.length,
+        ties: ties.length,
+        digitX: Number(pick('nt-digit').getAttribute('x')),
+        lyricX: Number(pick('nt-lyric').getAttribute('x')),
+        markW: Number(mark.getAttribute('width')),
+        markRight: Number(mark.getAttribute('x')) + Number(mark.getAttribute('width')),
+        lastTieX: ties.length ? Math.max(...ties.map((t) => Number(t.getAttribute('x')))) : -1,
+      };
+    };
+    const long = measure('/key(C)\n6---|\nL: 你');
+    const short = measure('/key(C)\n6|\nL: 你');
+    const aligned = Math.abs(long.lyricX - long.digitX) < 1e-9;
+    const covers = long.markRight >= long.lastTieX && long.markW > short.markW;
+    if (long.count === 1 && long.ties === 3 && aligned && covers) {
+      ok(`延音横杠｜长音：歌词对齐数字，高亮块罩住整段（${long.markW} > 单音符的 ${short.markW}）`);
+    } else {
+      fail(`延音横杠｜长音：${JSON.stringify(long)} / 单音符 ${JSON.stringify(short)}`);
+    }
+  }
+
+  // 一个音连同紧跟它的延音，在时间轴上共享一个时间段，播放时整段一起亮。
+  // 也就是 `6 - - -` 会同时变色（简谱里那本来就是一个音），而不是挨个走一遍。
+  {
+    const parsed = parseNotation('/key(C)\n6 - - - 3|');
+    const timeline = buildTimeline(parsed.notes, 120);
+    const head = timeline[0];
+    const shared = timeline.slice(0, 4).every((s) => s.start === head.start && s.end === head.end);
+    const nextStarts = timeline[4].start === timeline[3].end;
+
+    const box = new StubNode('div');
+    const { noteEls } = renderNotation(box, parsed);
+    const st = { prevTime: -1, prevFrom: -1, prevTo: -1 };
+    const lit = () => noteEls.filter((n) => n.classList.contains('current')).length;
+    const done = () => noteEls.filter((n) => n.classList.contains('past')).length;
+
+    paintProgress(noteEls, timeline, head.start + 0.01, st);
+    const litAtStart = lit();
+    paintProgress(noteEls, timeline, head.end - 0.01, st);   // 快放完了，还是同一段
+    const litNearEnd = lit();
+    paintProgress(noteEls, timeline, timeline[4].start + 0.01, st);
+    const doneAfter = done();
+    const litAfter = lit();
+
+    if (parsed.notes.length === 5 && shared && nextStarts
+      && litAtStart === 4 && litNearEnd === 4 && doneAfter === 4 && litAfter === 1) {
+      ok('延音横杠｜整段一起亮：`6 - - -` 四个字符同时点亮，过完一起变已播放');
+    } else {
+      fail('延音横杠｜整段一起亮：共享时间段=' + shared + ' 下一段紧接=' + nextStarts
+        + ' 起点亮=' + litAtStart + ' 尾端亮=' + litNearEnd
+        + ' 过后已播放=' + doneAfter + ' 过后在播=' + litAfter + '（期望 true/true/4/4/4/1）');
+    }
+  }
+
+  // 同组的几个字符拿到同一块高亮（互相重合），隔壁的音符另起一块
+  {
+    const parsed = parseNotation('/key(C)\n6 - - 3|');
+    const box = new StubNode('div');
+    const { noteEls } = renderNotation(box, parsed);
+    const rectOf = (g) => {
+      const r = g.childNodes.find((c) => c.classList && c.classList.contains('nt-mark'));
+      return { x: Number(r.getAttribute('x')), w: Number(r.getAttribute('width')) };
+    };
+    const group = [rectOf(noteEls[0]), rectOf(noteEls[1]), rectOf(noteEls[2])];
+    const same = group.every((r) => r.x === group[0].x && r.w === group[0].w);
+    const solo = rectOf(noteEls[3]);
+    const distinct = solo.x !== group[0].x && solo.w < group[0].w;
+    if (parsed.notes.length === 4 && same && distinct) {
+      ok(`延音横杠｜高亮块：6 - - 共用一块（宽 ${group[0].w}），3 另起一块（宽 ${solo.w}）`);
+    } else {
+      fail(`延音横杠｜高亮块：${JSON.stringify(group)} vs 单音符 ${JSON.stringify(solo)}`);
     }
   }
 } finally {
