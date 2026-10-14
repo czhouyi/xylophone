@@ -97,6 +97,21 @@ export class ScorePlayer {
     return this.abcjs.renderAbc(this.hiddenDiv, abc, { responsive: 'resize' })[0];
   }
 
+  /**
+   * 丢掉已预渲染的音频，等下次播放重新加载。
+   * 音色、速度这类会改变 ABC 内容的改动都要走这里——已经 prime 过的 buffer
+   * 是按旧参数渲染的，不重来就会与谱面时间轴对不上。
+   */
+  reload() {
+    this.stop();
+    this.resetSynth();
+    this.visualObj = null;
+    this.primed = false;
+    this.state = 'idle'; // 参数变了，重新初始化后从头播放
+    this.startedAt = 0;
+    this.pausedAt = 0;
+  }
+
   /** 切换音色：音色写在 ABC 的 %%MIDI program 里，需重新渲染并重新 prime */
   setProgram(program) {
     // 注意：钢琴的编号是 0，是 falsy 值，这里必须用 Number.isInteger 判断，
@@ -104,13 +119,7 @@ export class ScorePlayer {
     const parsed = Number.parseInt(program, 10);
     const valid = Number.isInteger(parsed) && parsed >= 0 && parsed <= 127;
     this.program = valid ? parsed : DEFAULT_PROGRAM;
-    this.stop();
-    this.resetSynth();
-    this.visualObj = null;
-    this.primed = false;
-    this.state = 'idle'; // 音色变了，重新初始化后从头播放
-    this.startedAt = 0;
-    this.pausedAt = 0;
+    this.reload();
     this.onStatus('音色已切换，点击播放重新加载');
   }
 

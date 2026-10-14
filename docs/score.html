@@ -47,6 +47,13 @@
           </select>
         </div>
 
+        <div class="field">
+          <label for="tempo">速度</label>
+          <!-- 速度不写在谱面里，在这里调；单位是每分钟四分音符数 -->
+          <input id="tempo" type="range" min="40" max="208" step="2" value="120">
+          <output id="tempo-value" for="tempo" class="tempo-value">120 BPM</output>
+        </div>
+
         <div class="controls">
           <button id="btn-play" type="button" disabled>▶ 播放</button>
           <button id="btn-pause" type="button" class="secondary" disabled>⏸ 暂停</button>
@@ -55,6 +62,19 @@
       </div>
 
       <p id="play-status" class="status-line" role="status"></p>
+
+      <section class="editor">
+        <button id="btn-edit" type="button" class="secondary" aria-expanded="false" aria-controls="editor-panel">✎ 临时改谱</button>
+
+        <div id="editor-panel" class="editor-panel" hidden>
+          <div class="editor-head">
+            <p class="editor-hint">改动只在这个页面里生效，<strong>刷新就回到原来的曲谱</strong>；改完直接按「播放」试听。</p>
+            <button id="btn-revert" type="button" class="secondary">恢复原谱</button>
+          </div>
+          <textarea id="notation-input" spellcheck="false" rows="14" aria-label="简谱内容"></textarea>
+          <p id="editor-status" class="status-line" role="status"></p>
+        </div>
+      </section>
     </article>
   </main>
 

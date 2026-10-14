@@ -2,7 +2,7 @@
  * list.js — 曲谱列表页入口（index.html）
  */
 
-import { loadScoreList, scoreUrl } from './data.js';
+import { loadScoreList, scoreUrl, scoreByline } from './data.js';
 
 const listEl = document.getElementById('score-list');
 const statusEl = document.getElementById('list-status');
@@ -24,8 +24,9 @@ function renderCard(score) {
   if (score.subtitle) {
     a.append(el('p', 'subtitle', score.subtitle));
   }
-  if (score.composer) {
-    a.append(el('p', 'composer', score.composer));
+  const byline = scoreByline(score);
+  if (byline) {
+    a.append(el('p', 'composer', byline));
   }
 
   const tags = [];
@@ -50,7 +51,7 @@ async function main() {
   try {
     const scores = await loadScoreList();
     if (!scores.length) {
-      setStatus('曲谱库还是空的。往 docs/data/scores/ 里添加曲谱后运行 node tools/build-index.mjs。');
+      setStatus('曲谱库还是空的。在 docs/data/scores/index.json 里加一条 meta，再放一份 <id>.jianpu 谱面。');
       return;
     }
     const fragment = document.createDocumentFragment();

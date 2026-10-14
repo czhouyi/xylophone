@@ -230,12 +230,18 @@ export function parseNotation(text) {
 /* ---------- 时间轴 ---------- */
 
 /**
+ * 默认速度（每分钟四分音符数）。
+ * 速度已经不在谱面里写，改由界面上的速度控件决定，这里是没给值时的兜底。
+ */
+export const DEFAULT_BPM = 120;
+
+/**
  * 按速度把拍数换算成秒，得到每个音符的 [start, end)。
  * @param {Array} notes parseNotation 产出的音符数组
  * @param {number} bpm 每分钟四分音符数
  */
 export function buildTimeline(notes, bpm) {
-  const secondsPerBeat = 60 / (bpm > 0 ? bpm : 120);
+  const secondsPerBeat = 60 / (bpm > 0 ? bpm : DEFAULT_BPM);
   let cursor = 0;
   return notes.map((note) => {
     const start = cursor;

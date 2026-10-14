@@ -2,9 +2,9 @@
  * check.mjs — 站点自检（本地运行，不参与线上页面）
  *
  * 校验四件事：
- *   1. 每首曲谱 JSON 可解析、无 BOM/乱码、必需字段齐全、id 与文件名一致
- *   2. index.json 与实际曲谱文件双向一致
- *   3. HTML 里引用的本地资源都存在
+ *   1. index.json 里的 meta 齐全（含词曲作者），与 <id>.jianpu 谱面文件一一对应
+ *   2. 每份谱面可解析、歌词逐行对齐、生成的 ABC 与简谱一致
+ *   3. HTML 里引用的本地资源都存在，播放状态机与进度三态正确
  *   4. 起一个临时静态服务器，逐个 URL 探活（页面 / 样式 / 脚本 / 数据）
  *
  * 用法：node tools/check.mjs
@@ -17,7 +17,7 @@ import { fileURLToPath } from 'node:url';
 
 // 复用站点自己的解析器做校验，保证"校验的"就是"页面渲染的"
 import {
-  parseNotation, renderNotation, buildTimeline, paintProgress, resetProgress,
+  parseNotation, renderNotation, buildTimeline, paintProgress, resetProgress, DEFAULT_BPM,
 } from '../docs/assets/js/notation.js';
 import { buildBody, inferMeter, toAbc } from '../docs/assets/js/abc.js';
 import { ScorePlayer } from '../docs/assets/js/player.js';
@@ -31,54 +31,81 @@ const ok = (msg) => console.log(`ok    ${msg}`);
 const fail = (msg) => { failures += 1; console.log(`FAIL  ${msg}`); };
 
 // ---------- 1. 曲谱数据 ----------
+// meta 只有一份：docs/data/scores/index.json
+// 谱面是独立文件：docs/data/scores/<id>.jianpu（里面的换行就是真换行）
+
+const NOTATION_EXT = 'jianpu';
+const ID_OK = /^[a-z0-9][a-z0-9._-]*$/i;
+
+const indexBuf = readFileSync(path.join(scoresDir, 'index.json'));
+const indexText = indexBuf.toString('utf8');
+if (indexBuf[0] === 0xef && indexBuf[1] === 0xbb && indexBuf[2] === 0xbf) fail('index.json: has UTF-8 BOM');
+if (indexText.includes('\uFFFD')) fail('index.json: contains U+FFFD (encoding damaged)');
+
+let metaList = [];
+try {
+  const parsedIndex = JSON.parse(indexText);
+  metaList = Array.isArray(parsedIndex) ? parsedIndex : parsedIndex && parsedIndex.scores;
+  if (!Array.isArray(metaList)) {
+    fail('index.json: 格式不正确，应为 { "scores": [...] }');
+    metaList = [];
+  }
+} catch (err) {
+  fail(`index.json: JSON parse error -> ${err.message}`);
+}
 
 const scoreFiles = readdirSync(scoresDir)
-  .filter((f) => f.endsWith('.json') && f !== 'index.json');
+  .filter((f) => f.endsWith(`.${NOTATION_EXT}`))
+  .sort();
 
-if (!scoreFiles.length) console.log('note  no score files found');
+if (!scoreFiles.length) console.log('note  no notation files found');
+ok(`index.json: ${metaList.length} 条 meta / ${scoreFiles.length} 份谱面`);
 
-for (const file of scoreFiles) {
-  const full = path.join(scoresDir, file);
-  const buf = readFileSync(full);
-  const text = buf.toString('utf8');
+const metaIds = new Set();
+const parsedScores = [];   // 供后面的渲染 / 进度检查复用
 
-  if (buf[0] === 0xef && buf[1] === 0xbb && buf[2] === 0xbf) fail(`${file}: has UTF-8 BOM`);
-  if (text.includes('\uFFFD')) fail(`${file}: contains U+FFFD (encoding damaged)`);
-
-  let data;
-  try {
-    data = JSON.parse(text);
-  } catch (err) {
-    fail(`${file}: JSON parse error -> ${err.message}`);
+for (const meta of metaList) {
+  const id = meta && meta.id;
+  if (!id) {
+    fail('index.json: 有一条 meta 缺少 id');
     continue;
   }
 
   const problems = [];
-  if (!data.id) problems.push('missing id');
-  if (data.id !== path.basename(file, '.json')) problems.push('id != filename');
-  if (typeof data.notation !== 'string' || !data.notation.trim()) problems.push('missing notation');
-  if (!data.title) problems.push('missing title');
-  // 播放用的 ABC 是运行时从 notation 生成的，所以数据里不再存 abc 字段
-  if ('abc' in data) problems.push('仍有 abc 字段（现在由 abc.js 生成，请删掉）');
+  if (!ID_OK.test(id)) problems.push('id 含非法字符');
+  if (metaIds.has(id)) problems.push('id 重复');
+  metaIds.add(id);
+  if (!meta.title) problems.push('缺少 title');
+  if (typeof meta.composer !== 'string') problems.push('composer 应为字符串（没有就写空串）');
+  if (typeof meta.lyricist !== 'string') problems.push('lyricist 应为字符串（没有就写空串）');
+  if ('notation' in meta) problems.push('meta 里不该再存 notation（谱面请放 <id>.jianpu）');
 
+  const label = `${id}.${NOTATION_EXT}`;
+  const notationPath = path.join(scoresDir, label);
+  if (!existsSync(notationPath)) problems.push(`找不到谱面文件 ${label}`);
   if (problems.length) {
-    fail(`${file}: ${problems.join(', ')}`);
+    fail(`${id}: ${problems.join(', ')}`);
     continue;
   }
+
+  const buf = readFileSync(notationPath);
+  const text = buf.toString('utf8');
+  if (buf[0] === 0xef && buf[1] === 0xbb && buf[2] === 0xbf) { fail(`${label}: has UTF-8 BOM`); continue; }
+  if (text.includes('\uFFFD')) { fail(`${label}: contains U+FFFD (encoding damaged)`); continue; }
 
   let parsed;
   try {
-    parsed = parseNotation(data.notation);
+    parsed = parseNotation(text);
   } catch (err) {
-    fail(`${file}: notation 解析失败 -> ${err.message}`);
+    fail(`${label}: 谱面解析失败 -> ${err.message}`);
     continue;
   }
   if (!parsed.notes.length) {
-    fail(`${file}: notation 里没有解析出音符`);
+    fail(`${label}: 谱面里没有解析出音符`);
     continue;
   }
-  if (!parsed.bpm) console.log(`warn  ${file}: notation 未标速度（回退到 120）`);
-  else ok(`${file}: 标了速度 (bpm=${parsed.bpm})`);
+  // 速度已经移到界面控件上，谱面里不该再写 bpm（写了会被忽略，这里直接拦下）
+  if (parsed.bpm) fail(`${label}: 谱面里不该再写 bpm（速度在详情页的速度控件上）`);
 
   // 每一行歌词的槽位数必须等于该行可唱音符数（休止符 0 不占歌词位）
   let mismatched = 0;
@@ -87,22 +114,24 @@ for (const file of scoreFiles) {
     const singable = line.items.filter((it) => it.kind === 'note' && it.pitch !== '0').length;
     if (line.lyric.length !== singable) mismatched += 1;
   }
-  if (mismatched) fail(`${file}: ${mismatched} 行歌词与音符数不匹配`);
-  else ok(`${file}: 歌词与音符逐行对齐`);
+  if (mismatched) fail(`${label}: ${mismatched} 行歌词与音符数不匹配`);
+  else ok(`${label}: 歌词与音符逐行对齐`);
 
-  ok(`${file}: ${parsed.notes.length} 个音符 / ${parsed.lines.length} 行 / key=${parsed.key || '-'}`);
+  ok(`${label}: ${parsed.notes.length} 个音符 / ${parsed.lines.length} 行 / key=${parsed.key || '-'}`);
 
   // 播放靠运行时生成的 ABC：这里验证它真能生成，且音符与简谱一一对应
   const abcBody = buildBody(parsed, parsed.key || 'C');
   const abcNotes = abcBody.split(/[\s|]+/).filter(Boolean).length;
-  if (abcNotes === parsed.notes.length) ok(`${file}: 生成的 ABC 音符与简谱一致（${abcNotes}）`);
-  else fail(`${file}: 生成的 ABC 音符 ${abcNotes} 个 ≠ 简谱 ${parsed.notes.length} 个`);
+  if (abcNotes === parsed.notes.length) ok(`${label}: 生成的 ABC 音符与简谱一致（${abcNotes}）`);
+  else fail(`${label}: 生成的 ABC 音符 ${abcNotes} 个 ≠ 简谱 ${parsed.notes.length} 个`);
 
-  const abc = toAbc(parsed, { title: data.title, program: 13 });
-  const heads = ['X:1', 'M:', 'L:1/4', `Q:1/4=${parsed.bpm || 120}`, `K:${parsed.key || 'C'}`, '%%MIDI program 13'];
+  const abc = toAbc(parsed, { title: meta.title, program: 13 });
+  const heads = ['X:1', 'M:', 'L:1/4', `Q:1/4=${DEFAULT_BPM}`, `K:${parsed.key || 'C'}`, '%%MIDI program 13'];
   const absent = heads.filter((h) => !abc.includes(h));
-  if (absent.length) fail(`${file}: 生成的 ABC 缺少头部字段 ${JSON.stringify(absent)}`);
-  else ok(`${file}: ABC 头部完整（拍号推断为 ${inferMeter(parsed)}）`);
+  if (absent.length) fail(`${label}: 生成的 ABC 缺少头部字段 ${JSON.stringify(absent)}`);
+  else ok(`${label}: ABC 头部完整（拍号推断为 ${inferMeter(parsed)}）`);
+
+  parsedScores.push({ label, meta, parsed });
 }
 
 // ---------- 1b. notation 指令（key / bpm / meter）----------
@@ -142,21 +171,27 @@ for (const c of directiveCases) {
   else ok(`notation 指令｜${c.name}`);
 }
 
-// ---------- 2. index.json 一致性 ----------
-
-const index = JSON.parse(readFileSync(path.join(scoresDir, 'index.json'), 'utf8'));
-if (!Array.isArray(index.scores)) fail('index.json: missing scores array');
-
-const indexed = new Set((index.scores || []).map((s) => s.id));
-for (const s of index.scores || []) {
-  if (!s.id) fail('index.json: entry without id');
-  else if (!existsSync(path.join(scoresDir, `${s.id}.json`))) fail(`index.json: ${s.id} has no ${s.id}.json`);
-  else ok(`index.json -> ${s.id}.json resolves`);
+// 速度由界面给：toAbc 的 Q: 必须跟着传进来的 bpm 走，缺省用 DEFAULT_BPM
+{
+  const parsed = parseNotation('/key(C)\n1 2 3 4 |');
+  const q = (bpm) => {
+    const line = /^Q:1\/4=(\d+)$/m.exec(toAbc(parsed, { bpm }));
+    return line ? Number(line[1]) : NaN;
+  };
+  if (q(60) === 60 && q(150) === 150 && q(undefined) === DEFAULT_BPM) {
+    ok(`速度：toAbc 的 Q: 跟随界面速度（60 / 150 / 缺省 ${DEFAULT_BPM}）`);
+  } else {
+    fail(`速度：Q: 得到 ${q(60)} / ${q(150)} / ${q(undefined)}，期望 60 / 150 / ${DEFAULT_BPM}`);
+  }
 }
-for (const file of scoreFiles) {
-  const id = path.basename(file, '.json');
-  if (!indexed.has(id)) fail(`${file}: not listed in index.json (run node tools/build-index.mjs)`);
-}
+
+// ---------- 2. meta 与谱面文件双向一致 ----------
+
+const orphanNotation = scoreFiles
+  .map((f) => path.basename(f, `.${NOTATION_EXT}`))
+  .filter((id) => !metaIds.has(id));
+if (orphanNotation.length) fail(`有谱面但 index.json 里没有 meta：${orphanNotation.join(', ')}`);
+else ok(`谱面文件与 meta 一一对应（各 ${scoreFiles.length} 份）`);
 
 // ---------- 3. HTML 本地引用 ----------
 
@@ -299,6 +334,25 @@ else {
   else fail(`iOS interrupted 状态：resume 调用了 ${resumed} 次，期望 1`);
 }
 
+// 速度 / 音色变了要丢掉旧 buffer：reload 后必须回到未预渲染状态
+{
+  const p = new ScorePlayer({ buildAbc: () => '' });
+  let stopped = 0;
+  p.synth = { stop() { stopped += 1; } };
+  p.primed = true;
+  p.state = 'playing';
+  p.startedAt = 5;
+  p.pausedAt = 2;
+  p.visualObj = { fake: true };
+  p.reload();
+  if (p.primed === false && p.visualObj === null && p.state === 'idle'
+    && p.startedAt === 0 && p.pausedAt === 0 && stopped === 1) {
+    ok('reload：丢掉已预渲染的 buffer，回到从头待播状态');
+  } else {
+    fail(`reload：primed=${p.primed} visualObj=${p.visualObj} state=${p.state} startedAt=${p.startedAt} stop=${stopped}`);
+  }
+}
+
 // 播放到底：状态要收尾，不能一直停在“正在播放…”
 {
   let status = '';
@@ -394,9 +448,8 @@ try {
   };
 
   let firstScore = null;
-  for (const file of scoreFiles) {
-    const data = JSON.parse(readFileSync(path.join(scoresDir, file), 'utf8'));
-    const parsed = parseNotation(data.notation);
+  // parsedScores 的 label 就是谱面文件名（如 little-star.jianpu），下面沿用它做前缀
+  for (const { label: file, parsed } of parsedScores) {
     const container = new StubNode('div');
     const { noteEls } = renderNotation(container, parsed);
     const gs = collect(container);
@@ -422,7 +475,7 @@ try {
     else fail(`${file}: 小节线渲染 ${renderedBars} 条 ≠ 解析出 ${parsedBars} 条`);
 
     // 减时线按“拍”分组：5_6_5_4_ 应该是 “56”“54” 两段，不能连成一长条
-    if (file === 'two-tigers.json') {
+    if (file === 'two-tigers.jianpu') {
       const underlines = collectLines(container);
       const byY = new Map();
       for (const ln of underlines) {
@@ -482,6 +535,7 @@ const MIME = {
   '.js': 'text/javascript; charset=utf-8',
   '.css': 'text/css; charset=utf-8',
   '.json': 'application/json; charset=utf-8',
+  '.jianpu': 'text/plain; charset=utf-8',
 };
 
 const server = createServer((req, res) => {
@@ -512,8 +566,8 @@ const urls = [
   '/assets/js/player.js',
   '/assets/js/score.js',
   '/data/scores/index.json',
-  '/data/scores/little-star.json',
-  '/data/scores/does-not-exist.json',
+  '/data/scores/little-star.jianpu',
+  '/data/scores/does-not-exist.jianpu',
 ];
 
 for (const url of urls) {

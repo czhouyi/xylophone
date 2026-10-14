@@ -8,6 +8,8 @@
  * 所以中间要按调性把音级翻译成音名，并处理调号与临时升降号。
  */
 
+import { DEFAULT_BPM } from './notation.js';
+
 /** 大调音阶：音级 1..7 对应的音名（含该调号内的升降） */
 const SCALE = {
   C: ['C', 'D', 'E', 'F', 'G', 'A', 'B'],
@@ -158,11 +160,12 @@ export function buildBody(parsed, key) {
 /**
  * 拼出完整的 ABC 谱。
  * @param {object} parsed parseNotation 的结果
- * @param {object} [meta] { title, program }，program 是 GM 音色编号
+ * @param {object} [meta] { title, program, bpm }，program 是 GM 音色编号，bpm 是界面上的速度
  */
 export function toAbc(parsed, meta = {}) {
   const key = parsed.key || 'C';
-  const tempo = parsed.bpm || 120;
+  // 速度由界面上的速度控件给（谱面里不再写 bpm），没给就用默认
+  const tempo = meta.bpm > 0 ? meta.bpm : DEFAULT_BPM;
   const program = meta.program === undefined ? 13 : meta.program;
 
   return [
