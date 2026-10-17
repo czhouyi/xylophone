@@ -3,162 +3,203 @@
     {
       "id": "ha-ba-gou",
       "title": "哈巴狗",
-      "subtitle": "",
-      "artist": "",
+      "subtitle": "经典幼儿互动手指谣",
+      "artist": "传统儿歌",
       "composer": "佚名",
-      "lyricist": "",
+      "lyricist": "佚名",
       "difficulty": "入门",
       "tags": [
-        "儿歌"
+        "儿歌",
+        "动物",
+        "互动"
       ]
     },
     {
       "id": "two-tigers",
       "title": "两只老虎",
-      "subtitle": "Frère Jacques",
-      "artist": "",
-      "composer": "法国童谣",
-      "lyricist": "",
+      "subtitle": "法国经典童谣 (Frère Jacques)",
+      "artist": "传统儿歌",
+      "composer": "法国传统民谣",
+      "lyricist": "佚名",
       "difficulty": "入门",
       "tags": [
         "儿歌",
-        "法国童谣"
+        "法国童谣",
+        "轮唱"
       ]
     },
     {
       "id": "shang-xue-ge",
       "title": "上学歌",
-      "subtitle": "",
-      "artist": "",
+      "subtitle": "中国经典启蒙儿歌",
+      "artist": "传统儿歌",
       "composer": "段福培",
       "lyricist": "盛茹茵",
       "difficulty": "入门",
       "tags": [
-        "儿歌"
+        "儿歌",
+        "启蒙",
+        "校园"
       ]
     },
     {
       "id": "mama-hao",
       "title": "世上只有妈妈好",
-      "subtitle": "电影《苦儿流浪记》插曲",
-      "artist": "",
-      "composer": "蔡振南",
-      "lyricist": "",
+      "subtitle": "1958年电影《苦儿流浪记》主题曲",
+      "artist": "萧芳芳",
+      "composer": "左宏元（署名刘宏远）",
+      "lyricist": "李隽青",
       "difficulty": "入门",
       "tags": [
         "儿歌",
-        "影视"
+        "影视",
+        "经典",
+        "亲情"
       ]
     },
     {
       "id": "shu-ya-zi",
       "title": "数鸭子",
-      "subtitle": "",
-      "artist": "",
+      "subtitle": "经典幼儿数字启蒙儿歌",
+      "artist": "传统儿歌",
       "composer": "胡小环",
       "lyricist": "王嘉桢",
       "difficulty": "入门",
       "tags": [
-        "儿歌"
+        "儿歌",
+        "数字",
+        "启蒙",
+        "互动"
       ]
     },
     {
       "id": "xiao-mao-lv",
       "title": "小毛驴",
-      "subtitle": "",
-      "artist": "",
+      "subtitle": "经典幽默启蒙儿歌",
+      "artist": "传统儿歌",
       "composer": "林重冏",
-      "lyricist": "",
+      "lyricist": "林重冏",
       "difficulty": "入门",
       "tags": [
-        "儿歌"
+        "儿歌",
+        "幽默",
+        "故事"
       ]
     },
     {
       "id": "xiao-ne-zha",
       "title": "小哪吒",
-      "subtitle": "动画片《哪吒传奇》片头曲",
+      "subtitle": "央视动画片《哪吒传奇》片头曲",
       "artist": "孙楠",
       "composer": "肖白",
       "lyricist": "张藁",
-      "difficulty": "入门",
+      "difficulty": "中级",
       "tags": [
-        "儿歌",
-        "影视"
+        "影视",
+        "动画",
+        "流行"
       ]
     },
     {
       "id": "xiao-tu-zi-guai-guai",
       "title": "小兔子乖乖",
-      "subtitle": "",
-      "artist": "",
+      "subtitle": "中国经典安全教育儿歌 / 原名《老虎叫门》",
+      "artist": "传统儿歌",
       "composer": "黎锦晖",
-      "lyricist": "",
+      "lyricist": "黎锦晖",
       "difficulty": "入门",
       "tags": [
-        "儿歌"
+        "儿歌",
+        "经典",
+        "安全教育"
       ]
     },
     {
       "id": "little-star",
       "title": "小星星",
-      "subtitle": "Twinkle Twinkle Little Star",
-      "artist": "",
-      "composer": "莫扎特 改编",
-      "lyricist": "",
+      "subtitle": "全球经典启蒙儿歌 (Twinkle Twinkle Little Star)",
+      "artist": "传统儿歌",
+      "composer": "莫扎特 (变奏曲)",
+      "lyricist": "简·泰勒 (Jane Taylor)",
       "difficulty": "入门",
       "tags": [
-        "儿歌"
+        "儿歌",
+        "启蒙",
+        "古典改编"
       ]
     },
     {
       "id": "yi-yong-jun-jin-xing-qu",
       "title": "义勇军进行曲",
-      "subtitle": "",
-      "artist": "",
+      "subtitle": "中华人民共和国国歌",
+      "artist": "上海电通公司合唱队（原唱）",
       "composer": "聂耳",
       "lyricist": "田汉",
-      "difficulty": "入门",
+      "difficulty": "中级",
       "tags": [
-        "国歌"
+        "国歌",
+        "进行曲",
+        "红色经典",
+        "电影原声"
       ]
     },
     {
       "id": "zhao-peng-you",
       "title": "找朋友",
-      "subtitle": "",
-      "artist": "",
+      "subtitle": "中国经典幼儿游戏儿歌",
+      "artist": "传统儿歌",
       "composer": "佚名",
-      "lyricist": "",
+      "lyricist": "佚名",
       "difficulty": "入门",
       "tags": [
-        "儿歌"
+        "儿歌",
+        "游戏",
+        "互动"
       ]
     },
     {
       "id": "zhu-ni-sheng-ri-kuai-le",
       "title": "祝你生日快乐",
-      "subtitle": "",
-      "artist": "",
-      "composer": "佚名",
-      "lyricist": "",
+      "subtitle": "全球传唱度最高的经典童谣",
+      "artist": "传统儿歌",
+      "composer": "Mildred J. Hill / Patty Smith Hill",
+      "lyricist": "Mildred J. Hill / Patty Smith Hill",
       "difficulty": "入门",
       "tags": [
-        "经典"
+        "经典",
+        "儿歌",
+        "派对"
       ]
     },
     {
       "id": "kge-zhi-wang",
       "title": "K歌之王",
-      "subtitle": "",
+      "subtitle": "粤语流行经典 / 前奏采样自《约定》",
       "artist": "陈奕迅",
       "composer": "陈辉阳",
       "lyricist": "林夕",
-      "difficulty": "",
+      "difficulty": "高级",
       "tags": [
         "流行",
-        "粤语"
+        "粤语",
+        "经典",
+        "叙事"
+      ]
+    },
+    {
+      "id": "qin-qin-wo-de-bao-bei",
+      "title": "亲亲我的宝贝",
+      "subtitle": "温馨亲情儿歌 / 吉他弹唱经典",
+      "artist": "周华健",
+      "composer": "周华健",
+      "lyricist": "周华健",
+      "difficulty": "初级",
+      "tags": [
+        "流行",
+        "亲情",
+        "经典"
       ]
     }
+    
   ]
 }
