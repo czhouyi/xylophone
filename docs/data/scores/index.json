@@ -229,6 +229,21 @@
         "夏日",
         "治愈"
       ]
+    },
+    {
+      "id": "canon-in-d",
+      "title": "卡农",
+      "subtitle": "Canon in D / 帕赫贝尔经典古典名曲",
+      "artist": "约翰·帕赫贝尔 (Johann Pachelbel)",
+      "composer": "约翰·帕赫贝尔 (Johann Pachelbel)",
+      "lyricist": "无（纯音乐）",
+      "difficulty": "高级（木琴/马林巴）",
+      "tags": [
+        "古典",
+        "纯音乐",
+        "婚礼",
+        "复调"
+      ]
     }
   ]
 }
