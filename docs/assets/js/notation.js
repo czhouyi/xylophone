@@ -17,8 +17,8 @@
  *   ｂｐｍ70           速度，只能写在谱面开头
  *   meter(3/4)        拍号，可选；不写则由小节拍数反推
  *
- * 渲染结果是一行一个 <svg>，每个音符是一个
- * <g class="nt-note" data-i="序号">，内部含一个透明的
+ * 渲染结果按容器宽度折行，每行一个 <svg>（一行放整数个小节，与源文件的换行无关）。
+ * 每个音符是一个 <g class="nt-note" data-i="序号">，内部含一个透明的
  * <rect class="nt-mark">；播放进度高亮（startProgress）就是给它加 class。
  * 一个音连同紧跟它的延音共用一个 mark（见 unitMarkRanges），所以 `6 - - -` 整段一起亮。
  */
@@ -659,8 +659,71 @@ function sameBeat(a, b) {
     && Math.floor(a.startBeat + 1e-9) === Math.floor(b.startBeat + 1e-9);
 }
 
+/* ---------- 自动折行 ---------- */
+
+/**
+ * 把解析结果按「小节」切平，不再按源文件的换行。
+ *
+ * 源文件里的换行只是写谱时给人看的；谱面怎么断行应该由屏幕宽度决定。
+ * 一个小节 = 一串音符 + 结尾那条小节线（末尾没写小节线的那截也算一节）。
+ *
+ * @param {Array} lines parseNotation 产出的 lines
+ * @returns {Array<{items: Array, width: number}>}
+ */
+function splitBars(lines) {
+  const bars = [];
+  for (const line of lines) {
+    let items = [];
+    let width = 0;
+    const flush = () => {
+      if (items.length) bars.push({ items, width });
+      items = [];
+      width = 0;
+    };
+    for (const item of line.items) {
+      items.push(item);
+      width += item.kind === 'note' ? measureNote(item) : BAR_W;
+      if (item.kind === 'bar') flush();
+    }
+    flush();
+  }
+  return bars;
+}
+
+/**
+ * 按可用宽度把小节贪心地装进每一行。
+ * 一行至少放一个小节——单个小节比屏幕还宽时让它自己一行（会横向溢出，
+ * 但总比把一小节劈成两半好）。
+ */
+function packBars(bars, available) {
+  const rows = [];
+  let row = [];
+  let width = 0;
+  for (const bar of bars) {
+    if (row.length && width + bar.width > available) {
+      rows.push(row);
+      row = [];
+      width = 0;
+    }
+    row.push(bar);
+    width += bar.width;
+  }
+  if (row.length) rows.push(row);
+  return rows;
+}
+
+/** 一行排版能用的宽度（扣掉左右各 4 的留白）；容器还没布局好时给个兜底 */
+function availableWidth(container) {
+  const width = container.clientWidth > 0 ? container.clientWidth : 800;
+  return Math.max(width - 8, 80);
+}
+
 /**
  * 把解析结果渲染进容器。
+ *
+ * 断行由容器宽度决定：把所有小节按宽度装行，每行放整数个小节，
+ * 所以同一份谱面在手机和桌面上会排出不同的行数。源文件的换行不参与排版。
+ *
  * @returns {{noteEls: Array<Element>, lineEls: Array<Element>}}
  */
 export function renderNotation(container, parsed) {
@@ -668,11 +731,16 @@ export function renderNotation(container, parsed) {
   const noteEls = new Array(parsed.notes.length);
   const lineEls = [];
 
-  for (const line of parsed.lines) {
+  const rows = packBars(splitBars(parsed.lines), availableWidth(container));
+
+  for (const row of rows) {
+    const items = [];
+    for (const bar of row) items.push(...bar.items);
+
     const measured = [];
     let width = 0;
 
-    for (const item of line.items) {
+    for (const item of items) {
       const itemWidth = item.kind === 'note' ? measureNote(item) : BAR_W;
       measured.push({ item, width: itemWidth, startBeat: 0, linkLeft: false, linkRight: false });
       width += itemWidth;

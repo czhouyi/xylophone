@@ -570,26 +570,25 @@ try {
     if (renderedBars === parsedBars) ok(`${file}: ${renderedBars} 条小节线渲染完整`);
     else fail(`${file}: 小节线渲染 ${renderedBars} 条 ≠ 解析出 ${parsedBars} 条`);
 
-    // 减时线按“拍”分组：5_6_5_4_ 应该是 “56”“54” 两段，不能连成一长条
+    // 减时线按“拍”分组：5_6_5_4_ 应该是 “56”“54” 两段，不能连成一长条。
+    // 统计时按 svg（= 排版后的一行）分开：行数现在随屏幕宽度变，
+    // 不分开的话会把不同行的横线拿来比 x。
     if (file === 'two-tigers.jianpu') {
-      const underlines = collectLines(container);
-      const byY = new Map();
-      for (const ln of underlines) {
-        const y = ln.getAttribute('y1');
-        if (!byY.has(y)) byY.set(y, []);
-        byY.get(y).push(ln);
-      }
+      const svgs = container.childNodes.filter((n) => n.nodeName === 'svg');
+      let underlines = 0;
       let joins = 0;
-      for (const seg of byY.values()) {
-        seg.sort((a, b) => Number(a.getAttribute('x1')) - Number(b.getAttribute('x1')));
-        for (let i = 1; i < seg.length; i += 1) {
-          const prevX2 = Number(seg[i - 1].getAttribute('x2'));
-          const curX1 = Number(seg[i].getAttribute('x1'));
+      for (const svg of svgs) {
+        const segs = collectLines(svg)
+          .sort((a, b) => Number(a.getAttribute('x1')) - Number(b.getAttribute('x1')));
+        underlines += segs.length;
+        for (let i = 1; i < segs.length; i += 1) {
+          const prevX2 = Number(segs[i - 1].getAttribute('x2'));
+          const curX1 = Number(segs[i].getAttribute('x1'));
           if (Math.abs(prevX2 - curX1) < 0.001) joins += 1;
         }
       }
-      if (underlines.length === 8 && joins === 4) ok('two-tigers: 减时线按拍分组（56 / 54 各一段，没连成长条）');
-      else fail(`two-tigers: 减时线 ${underlines.length} 条、相接 ${joins} 对，期望 8 条 / 4 对`);
+      if (underlines === 8 && joins === 4) ok('two-tigers: 减时线按拍分组（56 / 54 各一段，没连成长条）');
+      else fail(`two-tigers: 减时线 ${underlines} 条、相接 ${joins} 对，期望 8 条 / 4 对`);
     }
 
     if (!firstScore) firstScore = { file, parsed, noteEls };
@@ -769,6 +768,30 @@ try {
       ok('延音横杠｜回归：6_-- 的块画在 6 下面，后面的 - 不重复画块');
     } else {
       fail(`延音横杠｜回归：6 的 markAt=${markAt} digitAt=${digitAt}，- 有块=${dash.some(isMark)}`);
+    }
+  }
+
+  // 自动折行：断行跟着容器宽度走，每行装整数个小节，源文件的换行不参与排版。
+  // 同一份「源文件里只有一行」的谱面，窄容器应该排出更多行，且每行都不超宽。
+  {
+    const notation = '/key(C)\n' + Array.from({ length: 16 }, () => '1_1_|').join('');
+    const layout = (width) => {
+      const box = new StubNode('div');
+      box.clientWidth = width;
+      renderNotation(box, parseNotation(notation));
+      return box.childNodes.filter((n) => n.nodeName === 'svg');
+    };
+    const narrow = layout(260);
+    const wide = layout(1200);
+    const over = (rows, width) => rows.filter((s) => Number(s.getAttribute('width')) > width + 1).length;
+    // 每一行都得含小节线：整节装行，不会把一小节劈成两半
+    const wholeBars = (rows) => rows.every((svg) => svg.childNodes
+      .some((n) => n.classList && n.classList.contains('nt-bar')));
+    if (narrow.length > wide.length && over(narrow, 260) === 0 && over(wide, 1200) === 0 && wholeBars(narrow)) {
+      ok(`自动折行：窄屏 ${narrow.length} 行 / 宽屏 ${wide.length} 行，都按整小节装且不超宽`);
+    } else {
+      fail(`自动折行：窄屏 ${narrow.length} 行 / 宽屏 ${wide.length} 行，`
+        + `超宽 ${over(narrow, 260)} / ${over(wide, 1200)}，整节 ${wholeBars(narrow)}`);
     }
   }
 } finally {

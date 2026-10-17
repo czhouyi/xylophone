@@ -42,6 +42,8 @@ let currentParsed = null;      // 当前渲染的谱面（可能已被临时编�
 let currentBpm = DEFAULT_BPM;  // 播放速度，由工具栏上的速度控件决定（谱面里不写）
 let originalNotation = '';     // 仓库里的原谱，供「恢复原谱」用
 let playerRef = null;
+let stopProgress = null;       // 进度高亮的 rAF 停止函数
+let layoutWidth = 0;           // 上次排版用的容器宽度（宽度变了就重新断行）
 
 function setStatus(node, message, isError = false) {
   node.textContent = message;
@@ -119,7 +121,49 @@ function renderNotationToPage(notation) {
   noteEls.splice(0, noteEls.length, ...rendered.noteEls);
   timeline.splice(0, timeline.length, ...buildTimeline(parsed.notes, currentBpm));
   currentParsed = parsed;
+  layoutWidth = els.container.clientWidth;
   return parsed;
+}
+
+/**
+ * 重新启动进度高亮。
+ * 重排会重建一整批音符节点，而 rAF 闭包里的跨帧状态还记着旧的序号，
+ * 不重来就不会给新节点上色。
+ */
+function restartProgress() {
+  if (stopProgress) {
+    stopProgress();
+    stopProgress = null;
+  }
+  if (playerRef) stopProgress = startProgress(noteEls, timeline, () => playerRef.progressTime());
+}
+
+/**
+ * 容器宽度变了：只重新断行，不重新解析。
+ * 音符、歌词、时间轴都没变，变的只是「这一行放几个小节」。
+ */
+function relayout() {
+  if (!currentParsed) return;
+  const width = els.container.clientWidth;
+  if (!width || width === layoutWidth) return;
+  const rendered = renderNotation(els.container, currentParsed);
+  noteEls.splice(0, noteEls.length, ...rendered.noteEls);
+  layoutWidth = width;
+  restartProgress();
+}
+
+/** 监听容器宽度：优先 ResizeObserver（比 window.resize 准，手机地址栏收起也会触发） */
+function watchWidth() {
+  let timer = 0;
+  const schedule = () => {
+    clearTimeout(timer);
+    timer = setTimeout(relayout, 120);
+  };
+  if (typeof ResizeObserver !== 'undefined') {
+    new ResizeObserver(schedule).observe(els.container);
+  } else {
+    window.addEventListener('resize', schedule);
+  }
 }
 
 /** 谱面总时长（秒），用来判定「播放到底」 */
@@ -199,7 +243,7 @@ async function initPlayer(score) {
   setStatus(els.playStatus, '音频就绪，点击播放');
   // 播到结尾的判定要用总时长：简谱时间轴的总长与 abcjs 的音频一致
   player.setDuration(totalSeconds());
-  startProgress(noteEls, timeline, () => player.progressTime());
+  stopProgress = startProgress(noteEls, timeline, () => player.progressTime());
 
   els.instrument.addEventListener('change', (event) => {
     const option = event.target.selectedOptions[0];
@@ -262,6 +306,7 @@ async function main() {
   }
 
   initEditor();
+  watchWidth();
   await initPlayer(score);
 }
 
