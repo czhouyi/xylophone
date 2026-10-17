@@ -173,24 +173,34 @@ const LYRIC_PUNCT = /[，。、；：！？…—～·「」『』（）〔〕�
 /**
  * 把一行歌词切成与音符一一对应的槽位。
  * 规则：空白分隔；`*` 表示"这个音符不唱词"；其余按字切（英文用 - 分音节）；
- * 标点并入前一个字，不占音符位。
+ * 标点并入前一个字，不占音符位；引号包起来的一整段算一个槽（不拆字）。
  */
 function splitLyric(text) {
   const slots = [];
-  for (const chunk of text.split(/\s+/)) {
-    if (!chunk) continue;
-    if (chunk === '*') { slots.push(''); continue; }
-    if (/^[\x20-\x7F]+$/.test(chunk) && chunk.includes('-')) {
-      for (const part of chunk.split('-')) slots.push(part);
+  // 引号段先单独抽出来：jianpu.space 里 "(間奏)" 只占一个歌词位，
+  // 按字拆会变成「間」「奏)」两个，整行就多出一个槽、后面全部错位。
+  const parts = text.split(/\s*("(?:[^"]|"")*")\s*/);
+  for (const part of parts) {
+    if (!part) continue;
+    if (part.length >= 2 && part[0] === '"' && part[part.length - 1] === '"') {
+      slots.push(part.slice(1, -1).replace(/""/g, '"'));
       continue;
     }
-    // '_' 表示前一个字的音延续到这个音符上，占位但不显示
-    for (const ch of chunk) {
-      if (LYRIC_PUNCT.test(ch)) {
-        if (slots.length) slots[slots.length - 1] += ch;
+    for (const chunk of part.split(/\s+/)) {
+      if (!chunk) continue;
+      if (chunk === '*') { slots.push(''); continue; }
+      if (/^[\x20-\x7F]+$/.test(chunk) && chunk.includes('-')) {
+        for (const piece of chunk.split('-')) slots.push(piece);
         continue;
       }
-      slots.push(ch === '_' ? '' : ch);
+      // '_' 和 '*' 都表示「这个音符不填词」：占位，但不显示
+      for (const ch of chunk) {
+        if (LYRIC_PUNCT.test(ch)) {
+          if (slots.length) slots[slots.length - 1] += ch;
+          continue;
+        }
+        slots.push(ch === '_' || ch === '*' ? '' : ch);
+      }
     }
   }
   return slots;
@@ -231,14 +241,18 @@ export function parseNotation(text) {
     }
   }
 
-  // 歌词逐字分给能唱的音符：休止符 0 和延音横杠 - 都不唱词，不占歌词位
+  // 歌词按出现顺序全局铺到能唱的音符上，不按 L: 行重置 —— 跟 jianpu.space 一致。
+  // 好处是写歌词不必精确到行：某行多出的字会顺延到下一行的音，少了就留空。
+  const lyricSlots = [];
+  for (const line of lines) lyricSlots.push(...line.lyric);
+
   const notes = [];
+  let slot = 0;
   for (const line of lines) {
-    let slot = 0;
     for (const item of line.items) {
       if (item.kind !== 'note') continue;
       if (item.pitch !== '0' && item.pitch !== '-') {
-        item.lyric = line.lyric[slot] || '';
+        item.lyric = lyricSlots[slot] || '';
         slot += 1;
       }
       item.index = notes.length;

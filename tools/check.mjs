@@ -79,6 +79,10 @@ for (const meta of metaList) {
   if (typeof meta.artist !== 'string') problems.push('artist 应为字符串（没有就写空串）');
   if (typeof meta.composer !== 'string') problems.push('composer 应为字符串（没有就写空串）');
   if (typeof meta.lyricist !== 'string') problems.push('lyricist 应为字符串（没有就写空串）');
+  if (typeof meta.bpm !== 'number') problems.push('bpm 应为数字（没有就写 0）');
+  else if (meta.bpm !== 0 && (meta.bpm < 40 || meta.bpm > 208)) {
+    problems.push(`bpm=${meta.bpm} 超出滑块的 40~208`);
+  }
   if ('notation' in meta) problems.push('meta 里不该再存 notation（谱面请放 <id>.jianpu）');
 
   const label = `${id}.${NOTATION_EXT}`;
@@ -109,14 +113,17 @@ for (const meta of metaList) {
   if (parsed.bpm) fail(`${label}: 谱面里不该再写 bpm（速度在详情页的速度控件上）`);
 
   // 每一行歌词的槽位数必须等于该行可唱音符数（休止符 0 不占歌词位）
-  let mismatched = 0;
-  for (const line of parsed.lines) {
-    if (!line.lyric.length) continue;
-    const singable = line.items.filter((it) => it.kind === 'note' && it.pitch !== '0' && it.pitch !== '-').length;
-    if (line.lyric.length !== singable) mismatched += 1;
+  // 歌词是全局铺开的（跟 jianpu.space 一样），不要求逐行等长——
+  // 某行多出的字会顺延到下一行的音。这里只检查总数别把字弄丢。
+  const singable = parsed.notes.filter((n) => n.pitch !== '0' && n.pitch !== '-').length;
+  const lyricSlots = parsed.lines.reduce((n, l) => n + l.lyric.length, 0);
+  if (lyricSlots > singable) {
+    fail(`${label}: 歌词 ${lyricSlots} 字 > 可唱音符 ${singable} 个，多出的 ${lyricSlots - singable} 字会被丢弃`);
+  } else if (lyricSlots < singable) {
+    console.log(`note  ${label}: 歌词 ${lyricSlots} 字 < 可唱音符 ${singable} 个，最后 ${singable - lyricSlots} 个音没词`);
+  } else {
+    ok(`${label}: 歌词与音符对齐（${lyricSlots} 字 / ${singable} 音）`);
   }
-  if (mismatched) fail(`${label}: ${mismatched} 行歌词与音符数不匹配`);
-  else ok(`${label}: 歌词与音符逐行对齐`);
 
   ok(`${label}: ${parsed.notes.length} 个音符 / ${parsed.lines.length} 行 / key=${parsed.key || '-'}`);
 

@@ -84,6 +84,7 @@ for (const meta of scores) {
     composer: meta.composer || '',
     lyricist: meta.lyricist || '',
     difficulty: meta.difficulty || '',
+    bpm: Number.isFinite(meta.bpm) ? meta.bpm : 0,
     tags: Array.isArray(meta.tags) ? meta.tags : [],
   });
 }

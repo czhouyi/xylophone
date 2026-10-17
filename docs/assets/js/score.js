@@ -80,17 +80,17 @@ function renderHeader(score) {
   });
 }
 
-/** 歌词对没对上：逐行体检（编辑器靠它给即时反馈） */
+/** 歌词对没对上：歌词是全局铺开的，看总数就行（编辑器靠它给即时反馈） */
 function lyricProblems(parsed) {
-  const problems = [];
-  for (const [i, line] of parsed.lines.entries()) {
-    if (!line.lyric.length) continue;
-    const singable = line.items.filter((it) => it.kind === 'note' && it.pitch !== '0' && it.pitch !== '-').length;
-    if (line.lyric.length !== singable) {
-      problems.push(`第 ${i + 1} 行 ${singable} 个音 / ${line.lyric.length} 个字`);
-    }
+  const singable = parsed.notes.filter((n) => n.pitch !== '0' && n.pitch !== '-').length;
+  const slots = parsed.lines.reduce((n, l) => n + l.lyric.length, 0);
+  if (slots > singable) {
+    return [`歌词 ${slots} 个字 > 可唱音符 ${singable} 个，多出的 ${slots - singable} 个字会被丢弃`];
   }
-  return problems;
+  if (slots < singable) {
+    return [`歌词 ${slots} 个字 < 可唱音符 ${singable} 个，最后 ${singable - slots} 个音没词`];
+  }
+  return [];
 }
 
 function describeParsed(parsed) {
@@ -98,7 +98,7 @@ function describeParsed(parsed) {
   const parts = [];
 
   const problems = lyricProblems(parsed);
-  parts.push(problems.length ? `歌词对不上：${problems.join('，')}` : '歌词逐行对齐');
+  parts.push(problems.length ? `歌词对不上：${problems.join('，')}` : '歌词与音符对齐');
 
   // 认不出来的字符不报错但会静默丢时值，这里明确说出来（附行号）
   const skipped = describeSkipped(parsed.skipped);
@@ -295,6 +295,9 @@ async function main() {
   renderHeader(score);
   els.article.hidden = false;
   els.status.hidden = true;
+
+  // 每首歌的默认速度写在 index.json 的 bpm 里；0 或没写就用 120
+  if (Number.isFinite(score.bpm) && score.bpm > 0) currentBpm = score.bpm;
 
   originalNotation = score.notation || '';
   try {

@@ -1,6 +1,22 @@
 {
   "scores": [
     {
+      "id": "dao-xiang",
+      "title": "稻香",
+      "subtitle": "温暖民谣风 / 励志经典",
+      "artist": "周杰伦",
+      "composer": "周杰伦",
+      "lyricist": "周杰伦",
+      "difficulty": "中级",
+      "bpm": 82,
+      "tags": [
+        "流行",
+        "民谣",
+        "励志",
+        "治愈"
+      ]
+    },
+    {
       "id": "ha-ba-gou",
       "title": "哈巴狗",
       "subtitle": "经典幼儿互动手指谣",
@@ -8,10 +24,27 @@
       "composer": "佚名",
       "lyricist": "佚名",
       "difficulty": "入门",
+      "bpm": 0,
       "tags": [
         "儿歌",
         "动物",
         "互动"
+      ]
+    },
+    {
+      "id": "canon-in-d",
+      "title": "卡农",
+      "subtitle": "Canon in D / 帕赫贝尔经典古典名曲",
+      "artist": "约翰·帕赫贝尔 (Johann Pachelbel)",
+      "composer": "约翰·帕赫贝尔 (Johann Pachelbel)",
+      "lyricist": "无（纯音乐）",
+      "difficulty": "高级（木琴/马林巴）",
+      "bpm": 0,
+      "tags": [
+        "古典",
+        "纯音乐",
+        "婚礼",
+        "复调"
       ]
     },
     {
@@ -22,10 +55,42 @@
       "composer": "法国传统民谣",
       "lyricist": "佚名",
       "difficulty": "入门",
+      "bpm": 0,
       "tags": [
         "儿歌",
         "法国童谣",
         "轮唱"
+      ]
+    },
+    {
+      "id": "ning-xia",
+      "title": "宁夏",
+      "subtitle": "经典夏日民谣 / 收录于专辑《燕尾蝶》",
+      "artist": "梁静茹",
+      "composer": "李正帆",
+      "lyricist": "李正帆",
+      "difficulty": "初级",
+      "bpm": 0,
+      "tags": [
+        "流行",
+        "民谣",
+        "夏日",
+        "治愈"
+      ]
+    },
+    {
+      "id": "qin-qin-wo-de-bao-bei",
+      "title": "亲亲我的宝贝",
+      "subtitle": "温馨亲情儿歌 / 吉他弹唱经典",
+      "artist": "周华健",
+      "composer": "周华健",
+      "lyricist": "周华健",
+      "difficulty": "初级",
+      "bpm": 0,
+      "tags": [
+        "流行",
+        "亲情",
+        "经典"
       ]
     },
     {
@@ -36,6 +101,7 @@
       "composer": "段福培",
       "lyricist": "盛茹茵",
       "difficulty": "入门",
+      "bpm": 0,
       "tags": [
         "儿歌",
         "启蒙",
@@ -50,6 +116,7 @@
       "composer": "左宏元（署名刘宏远）",
       "lyricist": "李隽青",
       "difficulty": "入门",
+      "bpm": 0,
       "tags": [
         "儿歌",
         "影视",
@@ -65,11 +132,28 @@
       "composer": "胡小环",
       "lyricist": "王嘉桢",
       "difficulty": "入门",
+      "bpm": 0,
       "tags": [
         "儿歌",
         "数字",
         "启蒙",
         "互动"
+      ]
+    },
+    {
+      "id": "tong-hua",
+      "title": "童话",
+      "subtitle": "华语流行经典情歌 / 钢琴吉他必学曲目",
+      "artist": "光良",
+      "composer": "光良",
+      "lyricist": "光良",
+      "difficulty": "中级",
+      "bpm": 0,
+      "tags": [
+        "流行",
+        "情歌",
+        "经典",
+        "影视"
       ]
     },
     {
@@ -80,6 +164,7 @@
       "composer": "林重冏",
       "lyricist": "林重冏",
       "difficulty": "入门",
+      "bpm": 0,
       "tags": [
         "儿歌",
         "幽默",
@@ -94,6 +179,7 @@
       "composer": "肖白",
       "lyricist": "张藁",
       "difficulty": "中级",
+      "bpm": 0,
       "tags": [
         "影视",
         "动画",
@@ -108,6 +194,7 @@
       "composer": "黎锦晖",
       "lyricist": "黎锦晖",
       "difficulty": "入门",
+      "bpm": 0,
       "tags": [
         "儿歌",
         "经典",
@@ -122,6 +209,7 @@
       "composer": "莫扎特 (变奏曲)",
       "lyricist": "简·泰勒 (Jane Taylor)",
       "difficulty": "入门",
+      "bpm": 0,
       "tags": [
         "儿歌",
         "启蒙",
@@ -136,6 +224,7 @@
       "composer": "聂耳",
       "lyricist": "田汉",
       "difficulty": "中级",
+      "bpm": 0,
       "tags": [
         "国歌",
         "进行曲",
@@ -151,6 +240,7 @@
       "composer": "佚名",
       "lyricist": "佚名",
       "difficulty": "入门",
+      "bpm": 0,
       "tags": [
         "儿歌",
         "游戏",
@@ -165,6 +255,7 @@
       "composer": "Mildred J. Hill / Patty Smith Hill",
       "lyricist": "Mildred J. Hill / Patty Smith Hill",
       "difficulty": "入门",
+      "bpm": 0,
       "tags": [
         "经典",
         "儿歌",
@@ -179,70 +270,12 @@
       "composer": "陈辉阳",
       "lyricist": "林夕",
       "difficulty": "高级",
+      "bpm": 0,
       "tags": [
         "流行",
         "粤语",
         "经典",
         "叙事"
-      ]
-    },
-    {
-      "id": "qin-qin-wo-de-bao-bei",
-      "title": "亲亲我的宝贝",
-      "subtitle": "温馨亲情儿歌 / 吉他弹唱经典",
-      "artist": "周华健",
-      "composer": "周华健",
-      "lyricist": "周华健",
-      "difficulty": "初级",
-      "tags": [
-        "流行",
-        "亲情",
-        "经典"
-      ]
-    },
-    {
-      "id": "tong-hua",
-      "title": "童话",
-      "subtitle": "华语流行经典情歌 / 钢琴吉他必学曲目",
-      "artist": "光良",
-      "composer": "光良",
-      "lyricist": "光良",
-      "difficulty": "中级",
-      "tags": [
-        "流行",
-        "情歌",
-        "经典",
-        "影视"
-      ]
-    },
-    {
-      "id": "ning-xia",
-      "title": "宁夏",
-      "subtitle": "经典夏日民谣 / 收录于专辑《燕尾蝶》",
-      "artist": "梁静茹",
-      "composer": "李正帆",
-      "lyricist": "李正帆",
-      "difficulty": "初级",
-      "tags": [
-        "流行",
-        "民谣",
-        "夏日",
-        "治愈"
-      ]
-    },
-    {
-      "id": "canon-in-d",
-      "title": "卡农",
-      "subtitle": "Canon in D / 帕赫贝尔经典古典名曲",
-      "artist": "约翰·帕赫贝尔 (Johann Pachelbel)",
-      "composer": "约翰·帕赫贝尔 (Johann Pachelbel)",
-      "lyricist": "无（纯音乐）",
-      "difficulty": "高级（木琴/马林巴）",
-      "tags": [
-        "古典",
-        "纯音乐",
-        "婚礼",
-        "复调"
       ]
     }
   ]
