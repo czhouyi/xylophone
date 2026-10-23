@@ -170,3 +170,93 @@
   flex-wrap: wrap;
   gap: 10px;
 }
+
+/* ---------- 全屏看谱（演奏模式） ---------- */
+
+.score-stage { position: relative; }
+
+/* 正常页面里不显示全屏栏，也不占位 */
+.fs-bar { display: none; }
+
+body.nt-fullscreen { overflow: hidden; }
+
+/* 全屏时页面其余部分全部让位，只留下一整屏谱面 */
+body.nt-fullscreen .site-header,
+body.nt-fullscreen .site-footer,
+body.nt-fullscreen .back-link,
+body.nt-fullscreen #page-status,
+body.nt-fullscreen .score-header,
+body.nt-fullscreen .toolbar,
+body.nt-fullscreen #play-status,
+body.nt-fullscreen .editor { display: none; }
+
+body.nt-fullscreen .score-stage {
+  position: fixed;
+  inset: 0;
+  z-index: 100;
+  display: flex;
+  flex-direction: column;
+  background: var(--bg);
+}
+
+body.nt-fullscreen .fs-bar {
+  display: flex;
+  flex: 0 0 auto;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px 16px;
+  padding: 10px 16px;
+  padding-top: max(10px, env(safe-area-inset-top));
+  padding-left: max(16px, env(safe-area-inset-left));
+  padding-right: max(16px, env(safe-area-inset-right));
+  background: var(--surface);
+  border-bottom: 1px solid var(--border);
+}
+
+body.nt-fullscreen .fs-title {
+  flex: 1 1 auto;
+  min-width: 0;
+  margin: 0;
+  overflow: hidden;
+  font-size: 1rem;
+  font-weight: 600;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+body.nt-fullscreen .fs-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+body.nt-fullscreen .fs-actions button {
+  padding: 8px 14px;
+  font-size: 0.88rem;
+}
+
+body.nt-fullscreen .notation-card {
+  flex: 1 1 auto;
+  min-height: 0;
+  margin: 0;
+  padding: 18px 24px max(48px, env(safe-area-inset-bottom));
+  border: 0;
+  border-radius: 0;
+  box-shadow: none;
+  background: var(--bg);
+  overflow: auto;
+  -webkit-overflow-scrolling: touch;
+}
+
+/* 放大后的行距也放大一点，别让相邻两行挤在一起 */
+body.nt-fullscreen .nt-score { gap: 10px; }
+
+/* 手机上把两侧留白压到最小，60px 的数字才能多露几个 */
+@media (max-width: 600px) {
+  body.nt-fullscreen .notation-card {
+    padding: 12px 8px max(32px, env(safe-area-inset-bottom));
+  }
+
+  body.nt-fullscreen .fs-title { flex-basis: 100%; }
+}

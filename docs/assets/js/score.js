@@ -11,7 +11,7 @@
 
 import { loadScore, getScoreIdFromUrl, scoreTitle, scoreByline } from './data.js';
 import { ScorePlayer } from './player.js';
-import { parseNotation, renderNotation, buildTimeline, startProgress, DEFAULT_BPM, describeSkipped } from './notation.js';
+import { parseNotation, renderNotation, buildTimeline, startProgress, DEFAULT_BPM, describeSkipped, FULLSCREEN_SCALE } from './notation.js';
 import { toAbc } from './abc.js';
 
 const els = {
@@ -22,6 +22,13 @@ const els = {
   byline: document.getElementById('score-byline'),
   tags: document.getElementById('score-tags'),
   container: document.getElementById('notation-container'),
+  stage: document.getElementById('score-stage'),
+  fullscreenBtn: document.getElementById('btn-fullscreen'),
+  fsTitle: document.getElementById('fs-title'),
+  fsPlay: document.getElementById('fs-play'),
+  fsPause: document.getElementById('fs-pause'),
+  fsStop: document.getElementById('fs-stop'),
+  fsExit: document.getElementById('fs-exit'),
   instrument: document.getElementById('instrument'),
   tempo: document.getElementById('tempo'),
   tempoValue: document.getElementById('tempo-value'),
@@ -44,6 +51,8 @@ let originalNotation = '';     // 仓库里的原谱，供「恢复原谱」用
 let playerRef = null;
 let stopProgress = null;       // 进度高亮的 rAF 停止函数
 let layoutWidth = 0;           // 上次排版用的容器宽度（宽度变了就重新断行）
+let viewScale = 1;             // 全屏看谱时整行放大（数字 60px / 歌词 40px）
+let isFullscreen = false;
 
 function setStatus(node, message, isError = false) {
   node.textContent = message;
@@ -117,7 +126,7 @@ function renderNotationToPage(notation) {
   const parsed = parseNotation(notation || '');
   if (!parsed.notes.length) throw new Error('这份谱面里没有解析出音符');
 
-  const rendered = renderNotation(els.container, parsed);
+  const rendered = renderNotation(els.container, parsed, { scale: viewScale });
   noteEls.splice(0, noteEls.length, ...rendered.noteEls);
   timeline.splice(0, timeline.length, ...buildTimeline(parsed.notes, currentBpm));
   currentParsed = parsed;
@@ -146,10 +155,72 @@ function relayout() {
   if (!currentParsed) return;
   const width = els.container.clientWidth;
   if (!width || width === layoutWidth) return;
-  const rendered = renderNotation(els.container, currentParsed);
+  const rendered = renderNotation(els.container, currentParsed, { scale: viewScale });
   noteEls.splice(0, noteEls.length, ...rendered.noteEls);
   layoutWidth = width;
   restartProgress();
+}
+
+/**
+ * 按当前缩放重画一遍（全屏进出用）。
+ * 只重新排版与绘制，不重新解析：音符、歌词、时间轴都没变。
+ */
+function rerender() {
+  if (!currentParsed) return;
+  const rendered = renderNotation(els.container, currentParsed, { scale: viewScale });
+  noteEls.splice(0, noteEls.length, ...rendered.noteEls);
+  layoutWidth = els.container.clientWidth;
+  restartProgress();
+}
+
+/** 进入 / 退出全屏看谱：放大谱面、隐藏页面其余部分，Esc 或按钮退出 */
+function setFullscreen(on) {
+  if (on === isFullscreen) return;
+  isFullscreen = on;
+  viewScale = on ? FULLSCREEN_SCALE : 1;
+
+  document.body.classList.toggle('nt-fullscreen', on);
+  els.fullscreenBtn.setAttribute('aria-pressed', String(on));
+  if (on) els.fsTitle.textContent = els.title.textContent;
+
+  // 先切 class、再读 clientWidth：rerender 会按新宽度重新装小节
+  rerender();
+
+  if (on) {
+    els.fsExit.focus({ preventScroll: true });
+    // 桌面浏览器用原生全屏；iOS Safari 没有元素级全屏，CSS 铺满照样可用
+    try {
+      const request = els.stage.requestFullscreen?.();
+      if (request && typeof request.catch === 'function') request.catch(() => {});
+    } catch {
+      // 原生全屏不可用或被拒绝：CSS 铺满已经生效，不用管
+    }
+  } else {
+    try {
+      if (document.fullscreenElement && document.exitFullscreen) {
+        const exit = document.exitFullscreen();
+        if (exit && typeof exit.catch === 'function') exit.catch(() => {});
+      }
+    } catch {
+      // 已经退出原生全屏了，忽略
+    }
+    els.fullscreenBtn.focus({ preventScroll: true });
+  }
+}
+
+function initFullscreen() {
+  els.fullscreenBtn.addEventListener('click', () => setFullscreen(true));
+  els.fsExit.addEventListener('click', () => setFullscreen(false));
+
+  // 用浏览器原生全屏时，按 Esc / 浏览器手势退出也要把页面恢复原样
+  document.addEventListener('fullscreenchange', () => {
+    if (!document.fullscreenElement && isFullscreen) setFullscreen(false);
+  });
+
+  // 没有原生全屏（iOS Safari）时，Esc 只对键盘有意义，但留着不碍事
+  document.addEventListener('keydown', (event) => {
+    if (event.key === 'Escape' && isFullscreen) setFullscreen(false);
+  });
 }
 
 /** 监听容器宽度：优先 ResizeObserver（比 window.resize 准，手机地址栏收起也会触发） */
@@ -172,7 +243,8 @@ function totalSeconds() {
 }
 
 function setControlsEnabled(enabled) {
-  [els.play, els.pause, els.stop].forEach((btn) => { btn.disabled = !enabled; });
+  [els.play, els.pause, els.stop, els.fsPlay, els.fsPause, els.fsStop]
+    .forEach((btn) => { btn.disabled = !enabled; });
 }
 
 /** 临时改谱：重新解析渲染，并让播放器按新谱重新预加载 */
@@ -243,7 +315,9 @@ async function initPlayer(score) {
   setStatus(els.playStatus, '音频就绪，点击播放');
   // 播到结尾的判定要用总时长：简谱时间轴的总长与 abcjs 的音频一致
   player.setDuration(totalSeconds());
-  stopProgress = startProgress(noteEls, timeline, () => player.progressTime());
+  // 用 restartProgress 而不是直接 startProgress：全屏切换可能已经启动过一条
+  // 进度动画（此时进度时间还是 null），先停掉旧的，避免两条 rAF 同时跑。
+  restartProgress();
 
   els.instrument.addEventListener('change', (event) => {
     const option = event.target.selectedOptions[0];
@@ -274,6 +348,11 @@ async function initPlayer(score) {
   els.play.addEventListener('click', () => { player.play(); });
   els.pause.addEventListener('click', () => { player.pause(); });
   els.stop.addEventListener('click', () => { player.stop(); });
+
+  // 全屏栏上的播放控制：与工具栏按钮同一套播放器
+  els.fsPlay.addEventListener('click', () => { player.play(); });
+  els.fsPause.addEventListener('click', () => { player.pause(); });
+  els.fsStop.addEventListener('click', () => { player.stop(); });
 }
 
 async function main() {
@@ -309,6 +388,7 @@ async function main() {
   }
 
   initEditor();
+  initFullscreen();
   watchWidth();
   await initPlayer(score);
 }

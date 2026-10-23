@@ -30,8 +30,21 @@
         <div id="score-tags" class="score-tags"></div>
       </header>
 
-      <!-- 简谱渲染容器（notation.js 会在这里生成 SVG） -->
-      <div id="notation-container" class="notation-card nt-score"></div>
+      <!-- 全屏舞台：正常页面里只是普通容器，进入全屏后铺满视口 -->
+      <div id="score-stage" class="score-stage">
+        <div id="fs-bar" class="fs-bar">
+          <p id="fs-title" class="fs-title"></p>
+          <div class="fs-actions">
+            <button id="fs-play" type="button" disabled>▶ 播放</button>
+            <button id="fs-pause" type="button" class="secondary" disabled>⏸ 暂停</button>
+            <button id="fs-stop" type="button" class="secondary" disabled>⏹ 停止</button>
+            <button id="fs-exit" type="button" class="secondary">✕ 退出全屏</button>
+          </div>
+        </div>
+
+        <!-- 简谱渲染容器（notation.js 会在这里生成 SVG） -->
+        <div id="notation-container" class="notation-card nt-score"></div>
+      </div>
 
       <div class="toolbar">
         <div class="field">
@@ -58,6 +71,7 @@
           <button id="btn-play" type="button" disabled>▶ 播放</button>
           <button id="btn-pause" type="button" class="secondary" disabled>⏸ 暂停</button>
           <button id="btn-stop" type="button" class="secondary" disabled>⏹ 停止</button>
+          <button id="btn-fullscreen" type="button" class="secondary" aria-pressed="false">⛶ 全屏看谱</button>
         </div>
       </div>
 

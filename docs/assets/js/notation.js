@@ -38,6 +38,9 @@ const BAR_W = 14;        // 小节线占位宽度
 const BASE_Y = 44;       // 数字基线（自 svg 顶部起算）
 const LINE_H = 96;       // 单行高度
 
+/** 全屏看谱的放大倍数：数字 60px、歌词 40px（21 × 20/7 = 60，14 × 20/7 = 40） */
+export const FULLSCREEN_SCALE = 60 / DIGIT_SIZE;
+
 /* ---------- 解析 ---------- */
 
 /**
@@ -726,10 +729,23 @@ function packBars(bars, available) {
   return rows;
 }
 
-/** 一行排版能用的宽度（扣掉左右各 4 的留白）；容器还没布局好时给个兜底 */
+/**
+ * 一行排版能用的宽度（CSS 像素）。
+ *
+ * clientWidth 是含 padding 的：卡片为了好看留了内边距，如果直接拿 clientWidth
+ * 当可用宽度，排出来的 SVG 会比内容区还宽，卡片就永远有一条横向滚动条。
+ * 所以这里把左右 padding 一起扣掉（Node 里的校验桩没有 getComputedStyle，
+ * 退回原来「左右各 4」的假设）。
+ */
 function availableWidth(container) {
   const width = container.clientWidth > 0 ? container.clientWidth : 800;
-  return Math.max(width - 8, 80);
+  let padding = 8;
+  if (typeof getComputedStyle === 'function') {
+    const style = getComputedStyle(container);
+    padding += (Number.parseFloat(style.paddingLeft) || 0)
+      + (Number.parseFloat(style.paddingRight) || 0);
+  }
+  return Math.max(width - padding, 80);
 }
 
 /**
@@ -738,14 +754,20 @@ function availableWidth(container) {
  * 断行由容器宽度决定：把所有小节按宽度装行，每行放整数个小节，
  * 所以同一份谱面在手机和桌面上会排出不同的行数。源文件的换行不参与排版。
  *
+ * options.scale 是「整行放大倍数」（全屏看谱用）：排版仍按放大前的可用宽度算，
+ * 再把 svg 的 width/height 乘以倍数、viewBox 保持逻辑坐标。这样字号、延音杠、
+ * 高亮块会一起等比放大，而不会因为容器变宽把更多小节塞进一行。
+ *
+ * @param {{scale?: number}} [options]
  * @returns {{noteEls: Array<Element>, lineEls: Array<Element>}}
  */
-export function renderNotation(container, parsed) {
+export function renderNotation(container, parsed, options = {}) {
   container.textContent = '';
   const noteEls = new Array(parsed.notes.length);
   const lineEls = [];
 
-  const rows = packBars(splitBars(parsed.lines), availableWidth(container));
+  const scale = Number.isFinite(options.scale) && options.scale > 0 ? options.scale : 1;
+  const rows = packBars(splitBars(parsed.lines), availableWidth(container) / scale);
 
   for (const row of rows) {
     const items = [];
@@ -780,11 +802,14 @@ export function renderNotation(container, parsed) {
       cur.linkRight = sameBeat(cur, measured[i + 1]);
     }
 
+    // 逻辑宽度按 scale=1 排版；width/height 乘 scale，viewBox 保持逻辑坐标，
+    // 于是 SVG 把整行等比放大，字号、延音杠、高亮块一起变大且不会糊。
+    const lineW = Math.max(width + 8, 40);
     const svg = el('svg', {
       class: 'nt-line',
-      width: Math.max(width + 8, 40),
-      height: LINE_H,
-      viewBox: `0 0 ${Math.max(width + 8, 40)} ${LINE_H}`,
+      width: lineW * scale,
+      height: LINE_H * scale,
+      viewBox: `0 0 ${lineW} ${LINE_H}`,
     });
 
     // 落位：每个条目在行内的 x，以及内容（数字 + 升降号 + 延音杠 + 附点）在槽位里的位置

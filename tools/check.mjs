@@ -18,6 +18,7 @@ import { fileURLToPath } from 'node:url';
 // 复用站点自己的解析器做校验，保证"校验的"就是"页面渲染的"
 import {
   parseNotation, renderNotation, buildTimeline, paintProgress, resetProgress, DEFAULT_BPM, describeSkipped,
+  FULLSCREEN_SCALE,
 } from '../docs/assets/js/notation.js';
 import { buildBody, inferMeter, toAbc } from '../docs/assets/js/abc.js';
 import { ScorePlayer } from '../docs/assets/js/player.js';
@@ -799,6 +800,33 @@ try {
     } else {
       fail(`自动折行：窄屏 ${narrow.length} 行 / 宽屏 ${wide.length} 行，`
         + `超宽 ${over(narrow, 260)} / ${over(wide, 1200)}，整节 ${wholeBars(narrow)}`);
+    }
+  }
+
+  // 全屏看谱：整行按 FULLSCREEN_SCALE 放大（数字 60px / 歌词 40px），
+  // viewBox 保持逻辑坐标，所以只是视觉放大，不会因为容器变宽把更多小节塞进一行。
+  {
+    const notation = '/key(C)\n1_1_|';
+    const render = (scale) => {
+      const box = new StubNode('div');
+      box.clientWidth = 600;
+      renderNotation(box, parseNotation(notation), { scale });
+      return box.childNodes.find((n) => n.nodeName === 'svg');
+    };
+    const normal = render(1);
+    const full = render(FULLSCREEN_SCALE);
+    const widthOf = (svg) => Number(svg.getAttribute('width'));
+    const heightOf = (svg) => Number(svg.getAttribute('height'));
+    const scaled = Math.abs(widthOf(full) - widthOf(normal) * FULLSCREEN_SCALE) < 1e-6
+      && Math.abs(heightOf(full) - heightOf(normal) * FULLSCREEN_SCALE) < 1e-6;
+    const sameViewBox = normal.getAttribute('viewBox') === full.getAttribute('viewBox');
+    const digitPx = 21 * FULLSCREEN_SCALE;
+    const lyricPx = 14 * FULLSCREEN_SCALE;
+    if (scaled && sameViewBox && Math.round(digitPx) === 60 && Math.round(lyricPx) === 40) {
+      ok(`全屏看谱：整行放大 ${FULLSCREEN_SCALE.toFixed(3)}×（数字 ${digitPx}px / 歌词 ${lyricPx}px）`);
+    } else {
+      fail(`全屏看谱：宽 ${widthOf(normal)}→${widthOf(full)}、高 ${heightOf(normal)}→${heightOf(full)}，`
+        + `viewBox 相同=${sameViewBox}，字号 ${digitPx}/${lyricPx}`);
     }
   }
 } finally {
