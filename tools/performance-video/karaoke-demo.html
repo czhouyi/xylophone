@@ -1,0 +1,405 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>简谱卡拉 OK 同步高亮</title>
+  <style>
+    :root {
+      --bg: #0f0e0c;
+      --panel: #191714;
+      --line: #2d2924;
+      --future: #8f8579;
+      --past: #55d68b;
+      --past-bg: rgba(85, 214, 139, 0.14);
+      --current: #ff7a59;
+      --current-bg: rgba(255, 122, 89, 0.16);
+      --current-line: #ffd9cf;
+    }
+
+    * { box-sizing: border-box; }
+
+    body {
+      margin: 0;
+      min-height: 100vh;
+      display: grid;
+      place-items: center;
+      background: var(--bg);
+      color: #ece7e0;
+      font-family: system-ui, -apple-system, "PingFang SC", "Microsoft YaHei", sans-serif;
+    }
+
+    .app { width: min(100%, 960px); padding: 20px; }
+
+    /* 曲谱在上，视频在下 */
+    .score {
+      display: flex;
+      flex-wrap: wrap;
+      align-items: flex-end;
+      gap: 2px 0;
+      padding: 16px;
+      margin-bottom: 16px;
+      background: var(--panel);
+      border: 1px solid var(--line);
+      border-radius: 16px;
+      overflow: visible;
+    }
+
+    .note {
+      position: relative;
+      display: inline-flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: flex-end;
+      min-width: 56px;
+      padding: 10px 6px 16px;
+      border-radius: 10px;
+      color: var(--future);
+      background: transparent;
+      transform: scale(1);
+      transform-origin: center bottom;
+      transition:
+        transform 0.18s cubic-bezier(0.2, 0.8, 0.2, 1),
+        background-color 0.2s ease,
+        color 0.2s ease;
+      will-change: transform;
+      user-select: none;
+    }
+
+    .note .digit {
+      font-size: 42px;
+      line-height: 1;
+      font-variant-numeric: tabular-nums;
+    }
+
+    .note .lyric {
+      margin-top: 6px;
+      font-size: 17px;
+      line-height: 1.1;
+      opacity: 0.9;
+    }
+
+    .note .lyric:empty { display: none; }
+
+    /* 每个音符自己的下划线：transform: scaleX(0..1)。
+       left/right 贴到音符边缘，相邻音符的线就能接起来。 */
+    .note .bar {
+      position: absolute;
+      left: 0;
+      right: 0;
+      bottom: 4px;
+      height: 4px;
+      border-radius: 0;
+      background: currentColor;
+      transform: scaleX(0);
+      transform-origin: left center;
+      will-change: transform;
+    }
+
+    .note.past {
+      color: var(--past);
+      background: var(--past-bg);
+    }
+    .note.past .bar { transform: scaleX(1); }
+
+    .note.current {
+      color: var(--current);
+      background: var(--current-bg);
+      transform: scale(1.18);
+      z-index: 2;
+      box-shadow:
+        0 0 0 1px rgba(255, 122, 89, 0.22),
+        0 8px 22px rgba(255, 122, 89, 0.12);
+    }
+    .note.current .bar { background: var(--current-line); }
+
+    /* 拖拽进度条时关掉所有过渡，保证瞬间同步 */
+    .score.seeking .note { transition: none; }
+
+    .barline {
+      align-self: stretch;
+      display: flex;
+      align-items: center;
+      padding: 0 6px;
+      color: #5c544a;
+      font-size: 26px;
+    }
+
+    video {
+      display: block;
+      width: 100%;
+      border-radius: 16px;
+      background: #000;
+      border: 1px solid var(--line);
+    }
+
+    .hud {
+      margin: 10px 2px 0;
+      color: #8b8175;
+      font-size: 14px;
+      font-variant-numeric: tabular-nums;
+    }
+
+    @media (prefers-reduced-motion: reduce) {
+      .note { transition: none; }
+    }
+  </style>
+</head>
+<body>
+  <main class="app">
+    <!-- 曲谱在上 -->
+    <section id="score" class="score" aria-label="数字简谱"></section>
+
+    <!-- 播放器在下；把 src 换成你的视频 -->
+    <video id="myVideo" src="your-video.mp4" controls playsinline preload="metadata"></video>
+
+    <p id="hud" class="hud" role="status"></p>
+  </main>
+
+  <script>
+    // ============================================================
+    // 1. 曲谱与后端映射
+    //    NOTE_TIMES 就是 DTW 的输出：{ 音符序号: 视频秒数 }
+    // ============================================================
+    const SCORE = [
+      { d: "1", l: "一" }, { d: "1", l: "闪" }, { d: "5", l: "一" }, { d: "5", l: "闪", measureEnd: true },
+      { d: "6", l: "亮" }, { d: "6", l: "晶" }, { d: "5", l: "晶", long: true, measureEnd: true },
+      { d: "4", l: "满" }, { d: "4", l: "天" }, { d: "3", l: "都" }, { d: "3", l: "是", measureEnd: true },
+      { d: "2", l: "小" }, { d: "2", l: "星" }, { d: "1", l: "星", long: true }
+    ];
+
+    // 示例映射；实际用后端返回的 JSON 替换
+    const NOTE_TIMES = {
+      0: 1.20, 1: 1.65, 2: 2.10, 3: 2.55,
+      4: 3.00, 5: 3.45, 6: 3.90,
+      7: 4.55, 8: 5.00, 9: 5.45, 10: 5.90,
+      11: 6.35, 12: 6.80, 13: 7.25
+    };
+
+    // ============================================================
+    // 2. 渲染曲谱节点
+    // ============================================================
+    const video = document.getElementById("myVideo");
+    const scoreEl = document.getElementById("score");
+    const hud = document.getElementById("hud");
+    const noteEls = [];
+    let noteIndex = 0;
+
+    for (const item of SCORE) {
+      const el = document.createElement("div");
+      el.className = "note future";
+      el.dataset.index = String(noteIndex);
+      el.dataset.state = "future";
+
+      const digit = document.createElement("span");
+      digit.className = "digit";
+      digit.textContent = item.long ? `${item.d} -` : item.d;
+
+      const lyric = document.createElement("span");
+      lyric.className = "lyric";
+      lyric.textContent = item.l || "";
+
+      const bar = document.createElement("span");
+      bar.className = "bar";
+
+      el.append(digit, lyric, bar);
+      scoreEl.append(el);
+      noteEls.push(el);
+
+      noteIndex += 1;
+
+      if (item.measureEnd) {
+        const sep = document.createElement("span");
+        sep.className = "barline";
+        sep.textContent = "|";
+        scoreEl.append(sep);
+      }
+    }
+
+    // ============================================================
+    // 3. 时间映射与二分查找
+    // ============================================================
+    const seq = Object.entries(NOTE_TIMES)
+      .filter(([, v]) => v !== null && v !== undefined && v !== "")
+      .map(([k, v]) => ({ index: Number(k), time: Number(v) }))
+      .filter((x) => Number.isFinite(x.time) && x.index >= 0 && x.index < noteEls.length)
+      .sort((a, b) => a.time - b.time || a.index - b.index);
+
+    const seqTimes = seq.map((x) => x.time);
+    const timeByIndex = new Map(seq.map((x) => [x.index, x.time]));
+
+    function upperBound(arr, x) {
+      let lo = 0;
+      let hi = arr.length;
+      while (lo < hi) {
+        const mid = (lo + hi) >> 1;
+        if (arr[mid] <= x) lo = mid + 1;
+        else hi = mid;
+      }
+      return lo;
+    }
+
+    // 最后一个音的结束时间：优先用视频总时长，拿不到就往后补 1 秒
+    let lastEnd = Infinity;
+    function refreshLastEnd() {
+      if (!seq.length) {
+        lastEnd = Infinity;
+        return;
+      }
+      const last = seqTimes[seqTimes.length - 1];
+      const duration = video.duration;
+      lastEnd = Number.isFinite(duration) && duration > last ? duration : last + 1;
+    }
+
+    // ============================================================
+    // 4. 计算当前音符 + 当前音符内的进度
+    // ============================================================
+    let current = -1;
+    let currentP = 0;
+
+    function computeState(t) {
+      if (!seq.length || t >= lastEnd) {
+        current = -1;
+        currentP = 1;
+        return;
+      }
+
+      const pos = upperBound(seqTimes, t) - 1;
+      if (pos < 0) {
+        current = -1;
+        currentP = 0;
+        return;
+      }
+
+      current = seq[pos].index;
+      const start = seqTimes[pos];
+      const end = pos + 1 < seqTimes.length ? seqTimes[pos + 1] : lastEnd;
+      currentP = Math.min(1, Math.max(0, (t - start) / Math.max(end - start, 1e-6)));
+    }
+
+    // ============================================================
+    // 5. 渲染：只改 class 和当前音符的 transform
+    // ============================================================
+    function setState(el, state) {
+      if (el.dataset.state === state) return;
+
+      el.classList.remove("past", "current", "future");
+      el.classList.add(state);
+      el.dataset.state = state;
+
+      if (state === "current") el.setAttribute("aria-current", "true");
+      else el.removeAttribute("aria-current");
+
+      // 离开 current 时清掉行内 transform，让 CSS 接管：
+      // past 的 bar 是满的，future 的 bar 是 0。
+      if (state !== "current") {
+        const bar = el.querySelector(".bar");
+        if (bar) bar.style.transform = "";
+      }
+    }
+
+    function paint() {
+      const t = video.currentTime || 0;
+      computeState(t);
+
+      // 当前音之前的都是 past；没有当前音时用边界区分“还没开始/已经结束”
+      const currentStart = current >= 0
+        ? timeByIndex.get(current)
+        : (t >= lastEnd ? Infinity : -Infinity);
+
+      for (const el of noteEls) {
+        const idx = Number(el.dataset.index);
+        const nt = timeByIndex.get(idx);
+
+        let state;
+        if (current >= 0 && idx === current) {
+          state = "current";
+        } else if (nt !== undefined && nt < currentStart) {
+          state = "past";
+        } else if (nt === undefined && t >= lastEnd) {
+          state = "past";
+        } else {
+          state = "future";
+        }
+
+        setState(el, state);
+
+        if (state === "current") {
+          const bar = el.querySelector(".bar");
+          // 用 transform 而不是 width，避免每帧触发布局
+          bar.style.transform = `scaleX(${currentP})`;
+        }
+      }
+
+      const minutes = String(Math.floor(t / 60)).padStart(2, "0");
+      const seconds = String(Math.floor(t % 60)).padStart(2, "0");
+      const tenth = Math.floor((t - Math.floor(t)) * 10);
+      hud.textContent = `${minutes}:${seconds}.${tenth} · ${
+        current >= 0 ? String(current + 1).padStart(2, "0") : "--"
+      } / ${noteEls.length}`;
+    }
+
+    // ============================================================
+    // 6. 播放循环 / 暂停 / 拖拽
+    // ============================================================
+    let raf = 0;
+
+    function tick() {
+      paint();
+      raf = requestAnimationFrame(tick);
+    }
+
+    function startLoop() {
+      if (raf) return;
+      paint();
+      raf = requestAnimationFrame(tick);
+    }
+
+    function stopLoop() {
+      if (raf) cancelAnimationFrame(raf);
+      raf = 0;
+      paint();
+    }
+
+    function resetBars() {
+      for (const el of noteEls) {
+        const bar = el.querySelector(".bar");
+        if (bar) bar.style.transform = "";
+      }
+    }
+
+    video.addEventListener("play", startLoop);
+    video.addEventListener("pause", stopLoop);
+    video.addEventListener("ended", stopLoop);
+    video.addEventListener("timeupdate", paint);
+
+    video.addEventListener("seeking", () => {
+      scoreEl.classList.add("seeking");
+      resetBars();
+      paint();
+    });
+
+    video.addEventListener("seeked", () => {
+      scoreEl.classList.remove("seeking");
+      resetBars();
+      paint();
+    });
+
+    video.addEventListener("loadedmetadata", () => {
+      refreshLastEnd();
+      paint();
+    });
+
+    video.addEventListener("durationchange", () => {
+      refreshLastEnd();
+      paint();
+    });
+    window.addEventListener("resize", paint);
+
+    // 首帧
+    refreshLastEnd();
+    paint();
+    if (!video.paused) startLoop();
+  </script>
+</body>
+</html>
