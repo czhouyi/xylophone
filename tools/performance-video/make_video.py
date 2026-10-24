@@ -35,6 +35,7 @@ STRIP_ALPHA = 208      # 深色底的不透明度
 ACCENT = (225, 138, 92)
 INK = (245, 240, 233)
 MUTED = (138, 126, 114)
+PAST = (104, 196, 142)
 FUTURE = (198, 187, 174)
 SLOT = 112             # 每个音的横向间距
 MARGIN = 56
@@ -56,6 +57,28 @@ def ffprobe_duration(ffprobe, video):
                "-of", "default=nw=1:nk=1", video],
               capture_output=True, text=True).stdout.strip()
     return float(out)
+
+
+def ffprobe_color_info(ffprobe, video):
+    """返回 (color_transfer, color_primaries, pix_fmt)。"""
+    out = run([ffprobe, "-v", "error", "-select_streams", "v:0",
+               "-show_entries", "stream=color_transfer,color_primaries,pix_fmt",
+               "-of", "json", video],
+              capture_output=True, text=True, encoding="utf-8").stdout
+    streams = json.loads(out).get("streams") or [{}]
+    stream = streams[0]
+    return (stream.get("color_transfer"),
+            stream.get("color_primaries"),
+            stream.get("pix_fmt"))
+
+
+def color_filter(hdr, out_format):
+    """HDR 源先 tone map 到 BT.709；SDR 源直接转目标像素格式，避免二次压暗。"""
+    if hdr:
+        return ("zscale=t=linear:npl=100,format=gbrpf32le,zscale=p=bt709,"
+                "tonemap=tonemap=hable:desat=0,zscale=t=bt709:m=bt709:r=tv,"
+                f"format={out_format}")
+    return f"format={out_format}"
 
 
 def extract_wav(ffmpeg, video, wav_path):
@@ -290,6 +313,42 @@ class Strip:
             return -1
         return k
 
+    def highlight_at(self, t, scroll):
+        """当前高亮块的 (中心 x, 宽度)，以及被它盖住的音符索引。
+
+        高亮块不是整块跳：在换音前的最后 `slide` 秒里，中心从当前音
+        平滑推到下一个音，宽度同时从 102 撑到 184 再收回来。撑到最宽时
+        会同时盖住两个数字，这就是「横跨两个数字」的那几帧。
+        """
+        cur = self.current_at(t)
+        if cur < 0:
+            return None, set()
+
+        x_cur = self.x_center(cur) - scroll
+        if cur + 1 >= self.n:
+            return (x_cur, 102.0), {cur}
+
+        x_next = self.x_center(cur + 1) - scroll
+        interval = max(self.times[cur + 1] - self.times[cur], 1e-6)
+        # 过渡时长：最长 0.24s，最多占这个音时长的 35%，至少 0.08s
+        slide = min(0.24, max(0.08, interval * 0.35))
+        start = self.times[cur + 1] - slide
+        p = 0.0 if t <= start else min(1.0, (t - start) / slide)
+        ease = p * p * (3 - 2 * p)
+
+        center = x_cur + (x_next - x_cur) * ease
+        # 保持原来的块宽 102px（x ± 51），不做任何变宽。
+        # 滑动到中点时，块会压在两个数字的内侧边缘上，形成“横跨两个数字”的帧。
+        width = 102.0
+
+        active = set()
+        for i in (cur, cur + 1):
+            xi = self.x_center(i) - scroll
+            # 51（块半宽）+ 18（数字字形半宽）：块碰到字形就点亮这个数字
+            if abs(xi - center) <= width / 2 + 18:
+                active.add(i)
+        return (center, width), active
+
     def draw(self, t):
         W, H = self.W, STRIP_H
         img = Image.new("RGBA", (W, H), (0, 0, 0, 0))
@@ -299,6 +358,7 @@ class Strip:
 
         cur = self.current_at(t)
         scroll = self.scroll_at(t)
+        block, active = self.highlight_at(t, scroll)
 
         # 标题 + 计数
         d.text((MARGIN, 12), self.title, font=self.fonts["title"], fill=(*INK, 245), anchor="la")
@@ -320,24 +380,27 @@ class Strip:
                 if -10 <= bx <= W + 10:
                     d.line([(bx, 52), (bx, 218)], fill=(190, 178, 164, 70), width=1)
 
-        # 高亮块先画，文字后画
-        if 0 <= cur < self.n:
-            x = self.x_center(cur) - scroll
-            d.rounded_rectangle([x - 57, 56, x + 57, 218], radius=16, fill=(*ACCENT, 48))
-            d.rounded_rectangle([x - 51, 62, x + 51, 212], radius=13, fill=(*ACCENT, 238))
+        # 滑动高亮块：中心/宽度由 highlight_at 算，过渡时会撑宽盖住两个数字
+        if block is not None:
+            cx, bw = block
+            left, right = cx - bw / 2, cx + bw / 2
+            d.rounded_rectangle([left - 6, 56, right + 6, 218], radius=16,
+                                fill=(*ACCENT, 48))
+            d.rounded_rectangle([left, 62, right, 212], radius=13,
+                                fill=(*ACCENT, 238))
 
         for i, note in enumerate(self.notes):
             x = self.x_center(i) - scroll
             # 只画窗口中完整的音；贴边的残片（尤其是长音的横杠）会像孤立的“-”
             if x < -10 or x > W + 10:
                 continue
-            is_cur = i == cur
-            if is_cur:
+            ended = t > self.last_end
+            if i in active:
                 digit_color = (255, 255, 255, 255)
                 lyric_color = (255, 255, 255, 255)
-            elif i < cur or (cur < 0 and t > self.last_end):
-                digit_color = (*MUTED, 235)
-                lyric_color = (*MUTED, 200)
+            elif ended or i <= cur:
+                digit_color = (*PAST, 255)
+                lyric_color = (*PAST, 235)
             else:
                 digit_color = (*FUTURE, 245)
                 lyric_color = (*FUTURE, 210)
@@ -378,16 +441,6 @@ class Strip:
             if lyric:
                 d.text((x, 188), lyric, font=self.fonts["lyric"], fill=lyric_color, anchor="mm")
 
-            # 当前音内部的小进度线：把「卡拉 OK」的平滑推进也带进视频。
-            # 它的长度只跟当前音的时长有关，和全局进度条互补。
-            if is_cur:
-                next_t = self.times[i + 1] if i + 1 < self.n else self.last_end
-                note_span = max(next_t - self.times[i], 1e-6)
-                p = min(1.0, max(0.0, (t - self.times[i]) / note_span))
-                d.line([(x - 38, 207), (x + 38, 207)], fill=(255, 255, 255, 55), width=3)
-                d.line([(x - 38, 207), (x - 38 + 76 * p, 207)],
-                       fill=(255, 255, 255, 225), width=3)
-
         # 进度条
         p = self.progress_at(t)
         d.rectangle([0, H - 16, W, H - 10], fill=(72, 63, 55, 210))
@@ -395,10 +448,9 @@ class Strip:
         return img
 
 
-def preview(args, strip):
+def preview(args, strip, hdr):
     base_png = os.path.join(os.path.dirname(args.out) or ".", "_preview_base.png")
-    vf = ("zscale=t=linear:npl=100,format=gbrpf32le,zscale=p=bt709,"
-          "tonemap=tonemap=hable:desat=0,zscale=t=bt709:m=bt709:r=tv,format=rgb24")
+    vf = color_filter(hdr, "rgb24")
     run([args.ffmpeg, "-y", "-hide_banner", "-loglevel", "error",
          "-ss", str(args.preview_time), "-i", args.video, "-frames:v", "1",
          "-vf", vf, base_png])
@@ -413,7 +465,7 @@ def preview(args, strip):
     print(f"preview -> {args.preview}  (strip y={y})")
 
 
-def render(args, strip, duration):
+def render(args, strip, duration, hdr):
     W = strip.W
     total = int(math.ceil(duration * FPS))
     log_path = os.path.splitext(args.out)[0] + ".ffmpeg.log"
@@ -421,8 +473,7 @@ def render(args, strip, duration):
         overlay_y = "(main_h-overlay_h)/2"
     else:
         overlay_y = str(max(0, args.top_offset))
-    vf = ("[0:v]zscale=t=linear:npl=100,format=gbrpf32le,zscale=p=bt709,"
-          "tonemap=tonemap=hable:desat=0,zscale=t=bt709:m=bt709:r=tv,format=rgba[base];"
+    vf = (f"[0:v]{color_filter(hdr, 'rgba')}[base];"
           f"[base][1:v]overlay=0:{overlay_y}:format=auto,format=yuv420p[out]")
     cmd = [
         args.ffmpeg, "-y", "-hide_banner", "-loglevel", "warning",
@@ -481,6 +532,8 @@ def main():
                     help="已知速度；用于未匹配小节的兜底时间")
     ap.add_argument("--export-map", default=None,
                     help="把 note_index -> 秒 的映射导出成 JSON，供网页播放器使用")
+    ap.add_argument("--tonemap", choices=["auto", "on", "off"], default="auto",
+                    help="HDR→SDR 色调映射：auto 按源色彩判断（默认），on 强制，off 关闭")
     ap.add_argument("--ffmpeg", default=shutil.which("ffmpeg") or r"D:\ycz\tools\ffmpeg\bin\ffmpeg.exe")
     ap.add_argument("--ffprobe", default=shutil.which("ffprobe") or r"D:\ycz\tools\ffmpeg\bin\ffprobe.exe")
     ap.add_argument("--node", default=shutil.which("node") or "node")
@@ -531,6 +584,17 @@ def main():
     duration = ffprobe_duration(args.ffprobe, args.video)
     print(f"duration: {duration:.3f}s; first={times[0]:.3f}s last={times[-1]:.3f}s")
 
+    transfer, primaries, pix_fmt = ffprobe_color_info(args.ffprobe, args.video)
+    if args.tonemap == "on":
+        hdr = True
+    elif args.tonemap == "off":
+        hdr = False
+    else:
+        hdr = (transfer in ("arib-std-b67", "smpte2084")
+               or (primaries == "bt2020" and (pix_fmt or "").endswith("10le")))
+    print(f"color: {transfer or '?'} / {primaries or '?'} / {pix_fmt or '?'} "
+          f"-> {'HDR tone map' if hdr else 'SDR passthrough'}")
+
     if args.export_map:
         map_path = args.export_map
         map_dir = os.path.dirname(os.path.abspath(map_path))
@@ -543,9 +607,9 @@ def main():
     strip = Strip(1080, score, times, duration, args.title or lookup_title(args.score))
     print(f"strip: y={'middle' if args.middle else 'top'}, title={strip.title!r}")
     if args.preview:
-        preview(args, strip)
+        preview(args, strip, hdr)
     if args.out and not args.preview_only:
-        render(args, strip, duration)
+        render(args, strip, duration, hdr)
 
 
 if __name__ == "__main__":
