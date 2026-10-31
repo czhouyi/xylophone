@@ -170,38 +170,116 @@ def load_score(node, score_path):
     return json.loads(proc.stdout)
 
 
-def score_to_align_items(score):
-    """把曲谱 JSON 转成 align_robust 需要的格式。
+def beat_positions(notes):
+    """每个音符的起拍位置（单位：拍）。"""
+    starts = [0.0] * len(notes)
+    beat = 0.0
+    for i, note in enumerate(notes):
+        starts[i] = beat
+        beat += float(note.get("beat") or 1.0)
+    return starts
 
-    bars 里存的是「小节线前面已经过了多少个音符」，所以索引 i 等于某个
-    bars 值时，第 i 个音符就是下一小节的首音。
+
+def is_sounding(note):
+    """0 是休止符、- 是延音，都不会产生新的起音。"""
+    return str(note.get("pitch", "")) not in ("0", "-")
+
+
+def sounding_items(score, sounding, starts):
+    """把会响的音符转成 align_robust 需要的 items。
+
+    关键：duration 要算到「下一个会响的音」为止，把中间的休止/延音也包进去，
+    这样锚点的拍位置不会因为跳过休止符而整体前移。
     """
+    notes = score["notes"]
     bars = set(score.get("bars") or [])
+    total_beats = starts[-1] + float(notes[-1].get("beat") or 1.0)
+
+    # 小节首音可能是休止符；真正作为锚点的是它后面第一个会响的音
+    measure_starts = set()
+    for boundary in [0] + sorted(bars):
+        for index in sounding:
+            if index >= boundary:
+                measure_starts.add(index)
+                break
+
     items = []
-    for i, note in enumerate(score["notes"]):
+    for k, index in enumerate(sounding):
+        next_index = sounding[k + 1] if k + 1 < len(sounding) else len(notes)
+        end_beat = starts[next_index] if next_index < len(notes) else total_beats
         items.append({
-            "note": str(note.get("pitch", "")),
-            "duration": float(note.get("beat") or 1.0),
-            "is_measure_start": i == 0 or i in bars,
+            "note": str(notes[index].get("pitch", "")),
+            "duration": max(end_beat - starts[index], 1e-3),
+            "is_measure_start": index in measure_starts,
         })
     return items
 
 
+def fill_times(notes, starts, sounding, time_by_index):
+    """给休止符/延音补时间：在前后两个会响的音之间按拍位置线性插值。"""
+    n = len(notes)
+    times = [None] * n
+    for index, value in time_by_index.items():
+        times[index] = float(value)
+
+    if not sounding:
+        return [0.0] * n
+
+    if len(sounding) > 1:
+        b0, b1 = starts[sounding[0]], starts[sounding[-1]]
+        sec_per_beat = (time_by_index[sounding[-1]] - time_by_index[sounding[0]]) / max(b1 - b0, 1e-6)
+    else:
+        sec_per_beat = 0.5
+    if not math.isfinite(sec_per_beat) or sec_per_beat <= 0:
+        sec_per_beat = 0.5
+
+    for i in range(n):
+        if times[i] is not None:
+            continue
+        prev = next((s for s in reversed(sounding) if s < i), None)
+        nxt = next((s for s in sounding if s > i), None)
+
+        # 延音是前一个音的一部分：跟上一个会响的音同一时刻，避免进度多走一格
+        if str(notes[i].get("pitch", "")) == "-" and prev is not None:
+            times[i] = times[prev]
+        elif prev is not None and nxt is not None:
+            frac = (starts[i] - starts[prev]) / max(starts[nxt] - starts[prev], 1e-6)
+            times[i] = times[prev] + frac * (times[nxt] - times[prev])
+        elif prev is not None:
+            times[i] = times[prev] + (starts[i] - starts[prev]) * sec_per_beat
+        elif nxt is not None:
+            times[i] = times[nxt] - (starts[nxt] - starts[i]) * sec_per_beat
+        else:
+            times[i] = 0.0
+
+    # 单调化，防止极端情况倒流
+    for i in range(1, n):
+        if times[i] < times[i - 1]:
+            times[i] = times[i - 1]
+    return times
+
+
 def align(strong, score, *, force_robust=False, tolerance=0.35,
           skip_penalty=0.75, bpm=None):
-    """起音 ↔ 音符对齐。
+    """起音 ↔ 会响的音符对齐；休止符/延音不参与起音计数。
 
-    默认行为：起音数恰好等于音符数时走 1:1（和以前完全一样，干净演奏最准）；
-    数量不一致时自动切到 align_robust 的小节锚点对齐，抗漏音/杂音。
-    `--robust` 可以强制走锚点对齐。
+    默认行为：起音数恰好等于「会响的音符数」时走 1:1（干净演奏最准）；
+    数量不一致时自动切到 align_robust 的小节锚点对齐。`--robust` 可强制。
     """
     onsets = [t for t, _ in strong]
     notes = score["notes"]
+    starts = beat_positions(notes)
+    sounding = [i for i, note in enumerate(notes) if is_sounding(note)]
 
-    if len(onsets) == len(notes) and not force_robust:
-        return onsets, {"mode": "1:1", "matched": []}
+    if len(onsets) == len(sounding) and not force_robust:
+        time_by_index = {index: onsets[k] for k, index in enumerate(sounding)}
+        return fill_times(notes, starts, sounding, time_by_index), {
+            "mode": "1:1",
+            "matched": [],
+            "sounding": len(sounding),
+        }
 
-    items = score_to_align_items(score)
+    items = sounding_items(score, sounding, starts)
     mapping, debug = align_score_to_onsets(
         onsets,
         items,
@@ -210,9 +288,10 @@ def align(strong, score, *, force_robust=False, tolerance=0.35,
         skip_penalty=skip_penalty,
         return_debug=True,
     )
-    times = [mapping[i] for i in range(len(notes))]
+    time_by_index = {index: mapping[k] for k, index in enumerate(sounding)}
     debug["mode"] = "anchor-robust"
-    return times, debug
+    debug["sounding"] = len(sounding)
+    return fill_times(notes, starts, sounding, time_by_index), debug
 
 
 def lookup_title(score_path):
@@ -577,7 +656,9 @@ def main():
         skip_penalty=args.skip_penalty,
         bpm=args.bpm,
     )
-    print(f"align: {align_info['mode']} ({len(strong)} onsets / {len(score['notes'])} notes)")
+    print(f"align: {align_info['mode']} ({len(strong)} onsets / "
+          f"{align_info.get('sounding', len(score['notes']))} sounding, "
+          f"{len(score['notes'])} total notes)")
     if align_info.get("matched"):
         first = align_info["matched"][:4]
         print(f"anchors: {first}{' ...' if len(align_info['matched']) > 4 else ''}")
