@@ -277,6 +277,21 @@
         "经典",
         "叙事"
       ]
+    },
+    {
+      "id": "xin-nian-hao",
+      "title": "新年好",
+      "subtitle": "经典贺岁儿歌 / 英国传统民谣 (Happy New Year)",
+      "artist": "传统儿歌",
+      "composer": "英国传统民谣",
+      "lyricist": "佚名",
+      "difficulty": "入门",
+      "tags": [
+        "儿歌",
+        "节日",
+        "新年",
+        "经典"
+      ]
     }
   ]
 }
