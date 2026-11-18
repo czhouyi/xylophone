@@ -28,7 +28,14 @@ const els = {
   fsPlay: document.getElementById('fs-play'),
   fsPause: document.getElementById('fs-pause'),
   fsStop: document.getElementById('fs-stop'),
+  fsShare: document.getElementById('fs-share'),
   fsExit: document.getElementById('fs-exit'),
+  shareModal: document.getElementById('share-modal'),
+  shareImage: document.getElementById('share-image'),
+  shareStatus: document.getElementById('share-status'),
+  shareDownload: document.getElementById('share-download'),
+  shareNative: document.getElementById('share-native'),
+  shareClose: document.getElementById('share-close'),
   instrument: document.getElementById('instrument'),
   tempo: document.getElementById('tempo'),
   tempoValue: document.getElementById('tempo-value'),
@@ -53,6 +60,11 @@ let stopProgress = null;       // 进度高亮的 rAF 停止函数
 let layoutWidth = 0;           // 上次排版用的容器宽度（宽度变了就重新断行）
 let viewScale = 1;             // 全屏看谱时整行放大（数字 60px / 歌词 40px）
 let isFullscreen = false;
+let shareUrl = '';             // 分享图 blob URL
+let shareBlob = null;
+let shareFileName = '';
+let shareReturnFocus = null;
+let shareRequest = 0;          // 关闭弹层后忽略仍在生成的旧请求
 
 function setStatus(node, message, isError = false) {
   node.textContent = message;
@@ -214,13 +226,306 @@ function initFullscreen() {
 
   // 用浏览器原生全屏时，按 Esc / 浏览器手势退出也要把页面恢复原样
   document.addEventListener('fullscreenchange', () => {
-    if (!document.fullscreenElement && isFullscreen) setFullscreen(false);
+    if (!document.fullscreenElement && isFullscreen) {
+      if (!els.shareModal.hidden) closeShare();
+      setFullscreen(false);
+    }
   });
 
   // 没有原生全屏（iOS Safari）时，Esc 只对键盘有意义，但留着不碍事
   document.addEventListener('keydown', (event) => {
     if (event.key === 'Escape' && isFullscreen) setFullscreen(false);
   });
+}
+
+/* ---------- 分享曲谱图 ---------- */
+
+const SVG_NS = 'http://www.w3.org/2000/svg';
+
+function safeFileName(value) {
+  const name = String(value || '曲谱')
+    .replace(/[\\/:*?"<>|]/g, '')
+    .replace(/\s+/g, ' ')
+    .trim()
+    .slice(0, 40);
+  return name || '曲谱';
+}
+
+function svgNode(name, attrs = {}) {
+  const node = document.createElementNS(SVG_NS, name);
+  for (const [key, value] of Object.entries(attrs)) {
+    node.setAttribute(key, String(value));
+  }
+  return node;
+}
+
+function svgText(content, attrs = {}) {
+  const node = svgNode('text', attrs);
+  node.textContent = content;
+  return node;
+}
+
+/**
+ * 把当前曲谱的全部 SVG 行拼成一张适合分享的长图。
+ * 坐标沿用 notation.js 的「逻辑坐标」，外层只做一次整体 scale。
+ */
+function buildShareSvg() {
+  const lineNodes = [...els.container.querySelectorAll('svg.nt-line')];
+  if (!lineNodes.length) throw new Error('还没有可分享的曲谱');
+
+  const lines = lineNodes.map((svg) => {
+    const box = svg.viewBox && svg.viewBox.baseVal;
+    const width = box && box.width ? box.width : (parseFloat(svg.getAttribute('width')) || 0);
+    const height = box && box.height ? box.height : (parseFloat(svg.getAttribute('height')) || 96);
+    return { svg, width, height };
+  }).filter((line) => line.width > 0);
+  if (!lines.length) throw new Error('曲谱没有可用的排版尺寸');
+
+  const maxLineWidth = Math.max(...lines.map((line) => line.width));
+  const lineHeight = Math.max(...lines.map((line) => line.height));
+  const pad = 56;
+  const headerHeight = 176;
+  const gap = 10;
+
+  // 输出宽度约 1200px；行数特别多时再按最大高度缩一点
+  let scale = Math.min(2.6, (1200 - pad * 2) / maxLineWidth);
+  const heightFor = (value) => headerHeight
+    + lines.length * lineHeight * value
+    + (lines.length - 1) * gap
+    + pad;
+  if (heightFor(scale) > 8000) {
+    scale = (8000 - headerHeight - pad - (lines.length - 1) * gap)
+      / (lines.length * lineHeight);
+  }
+  scale = Math.max(0.8, scale);
+
+  const width = Math.ceil(maxLineWidth * scale + pad * 2);
+  const height = Math.ceil(heightFor(scale));
+
+  const out = svgNode('svg', {
+    xmlns: SVG_NS,
+    width,
+    height,
+    viewBox: `0 0 ${width} ${height}`,
+  });
+
+  const style = svgNode('style');
+  style.textContent = `
+    text { font-family: "Times New Roman", Times, "Songti SC", "SimSun", serif; }
+    .nt-digit { fill: #2d2823; }
+    .nt-rest { fill: #8a7f73; }
+    .nt-accidental { fill: #2d2823; }
+    .nt-dot { fill: #2d2823; }
+    .nt-tie { fill: #2d2823; }
+    .nt-underline, .nt-barline { stroke: #2d2823; stroke-width: 1.2; }
+    .nt-barfill { fill: #2d2823; }
+    .nt-lyric { fill: #8a7f73; }
+    .nt-mark { fill: transparent; }
+  `;
+  out.appendChild(style);
+
+  out.appendChild(svgNode('rect', {
+    x: 0, y: 0, width, height, fill: '#faf7f2',
+  }));
+
+  const title = (els.title.textContent || '曲谱').trim();
+  const subtitle = els.subtitle.hidden ? '' : (els.subtitle.textContent || '').trim();
+  const byline = els.byline.hidden ? '' : (els.byline.textContent || '').trim();
+  const titleSize = Math.max(22, Math.min(46, (width - pad * 2 - 24) / Math.max(title.length, 1)));
+  const subtitleSize = Math.max(14, Math.min(21, (width - pad * 2 - 24) / Math.max(subtitle.length || 1, 1)));
+  const bylineSize = Math.max(13, Math.min(19, (width - pad * 2 - 24) / Math.max(byline.length || 1, 1)));
+
+  out.appendChild(svgNode('rect', {
+    x: pad, y: 54, width: 5, height: 40, rx: 2, fill: '#c1633a',
+  }));
+  out.appendChild(svgText(title, {
+    x: pad + 16, y: 88,
+    style: 'font-family: system-ui, -apple-system, "PingFang SC", "Microsoft YaHei", sans-serif;',
+    'font-size': titleSize, 'font-weight': 700, fill: '#2d2823',
+  }));
+
+  if (subtitle) {
+    out.appendChild(svgText(subtitle, {
+      x: pad + 16, y: 122, 'font-size': subtitleSize, fill: '#8a7f73',
+    }));
+  }
+  if (byline) {
+    out.appendChild(svgText(byline, {
+      x: pad + 16, y: subtitle ? 152 : 124, 'font-size': bylineSize, fill: '#8a7f73',
+    }));
+  }
+
+  out.appendChild(svgNode('line', {
+    x1: pad, y1: headerHeight - 12, x2: width - pad, y2: headerHeight - 12,
+    stroke: '#e7ded2', 'stroke-width': 1,
+  }));
+
+  const contentWidth = width - pad * 2;
+  let y = headerHeight;
+  for (const line of lines) {
+    const x = pad + (contentWidth - line.width * scale) / 2;
+    const group = svgNode('g', { transform: `translate(${x} ${y}) scale(${scale})` });
+    for (const child of line.svg.childNodes) {
+      group.appendChild(child.cloneNode(true));
+    }
+    out.appendChild(group);
+    y += line.height * scale + gap;
+  }
+
+  return { svg: out, width, height };
+}
+
+function svgToPng(svg, width, height) {
+  return new Promise((resolve, reject) => {
+    const xml = new XMLSerializer().serializeToString(svg);
+    const source = new Blob([xml], { type: 'image/svg+xml;charset=utf-8' });
+    const url = URL.createObjectURL(source);
+    const image = new Image();
+
+    image.onload = () => {
+      try {
+        const canvas = document.createElement('canvas');
+        canvas.width = width;
+        canvas.height = height;
+        const context = canvas.getContext('2d');
+        context.fillStyle = '#faf7f2';
+        context.fillRect(0, 0, width, height);
+        context.drawImage(image, 0, 0, width, height);
+        canvas.toBlob((blob) => {
+          URL.revokeObjectURL(url);
+          if (blob) resolve(blob);
+          else reject(new Error('图片编码失败'));
+        }, 'image/png');
+      } catch (err) {
+        URL.revokeObjectURL(url);
+        reject(err);
+      }
+    };
+    image.onerror = () => {
+      URL.revokeObjectURL(url);
+      reject(new Error('SVG 转图片失败'));
+    };
+    image.src = url;
+  });
+}
+
+function closeShare() {
+  if (els.shareModal.hidden) return;
+  shareRequest += 1;
+  els.shareModal.hidden = true;
+  document.body.classList.remove('share-open');
+
+  if (shareUrl) {
+    URL.revokeObjectURL(shareUrl);
+    shareUrl = '';
+  }
+  shareBlob = null;
+  els.shareImage.removeAttribute('src');
+  els.shareImage.hidden = true;
+  els.shareDownload.hidden = true;
+  els.shareNative.hidden = true;
+
+  if (shareReturnFocus && typeof shareReturnFocus.focus === 'function') {
+    shareReturnFocus.focus({ preventScroll: true });
+  }
+  shareReturnFocus = null;
+}
+
+async function openShare() {
+  if (!currentParsed || !els.shareModal.hidden) return;
+
+  const requestId = (shareRequest += 1);
+  shareReturnFocus = document.activeElement;
+  els.shareModal.hidden = false;
+  document.body.classList.add('share-open');
+  els.shareImage.hidden = true;
+  els.shareImage.removeAttribute('src');
+  els.shareStatus.hidden = false;
+  els.shareDownload.hidden = true;
+  els.shareNative.hidden = true;
+  setStatus(els.shareStatus, '正在生成曲谱图片…');
+  els.shareClose.focus({ preventScroll: true });
+
+  try {
+    const { svg, width, height } = buildShareSvg();
+    const blob = await svgToPng(svg, width, height);
+    if (requestId !== shareRequest || els.shareModal.hidden) return;
+
+    if (shareUrl) URL.revokeObjectURL(shareUrl);
+    shareBlob = blob;
+    shareUrl = URL.createObjectURL(blob);
+    shareFileName = `${safeFileName(els.title.textContent)}-简谱.png`;
+
+    els.shareImage.src = shareUrl;
+    els.shareImage.alt = `${els.title.textContent || '曲谱'} 简谱`;
+    els.shareImage.title = '点击查看原图';
+    els.shareImage.hidden = false;
+    els.shareStatus.hidden = true;
+    els.shareDownload.hidden = false;
+
+    try {
+      const file = new File([blob], shareFileName, { type: 'image/png' });
+      if (navigator.canShare && navigator.canShare({ files: [file] })) {
+        els.shareNative.hidden = false;
+      }
+    } catch {
+      // 浏览器不支持 File 构造：只保留下载
+    }
+  } catch (err) {
+    console.error(err);
+    if (requestId === shareRequest) {
+      setStatus(els.shareStatus, `生成失败：${err.message}`, true);
+    }
+  }
+}
+
+function downloadShare() {
+  if (!shareUrl) return;
+  const link = document.createElement('a');
+  link.href = shareUrl;
+  link.download = shareFileName || '曲谱.png';
+  document.body.appendChild(link);
+  link.click();
+  link.remove();
+}
+
+async function nativeShare() {
+  if (!shareBlob) return;
+  try {
+    const file = new File([shareBlob], shareFileName, { type: 'image/png' });
+    await navigator.share({
+      files: [file],
+      title: els.title.textContent || '曲谱',
+    });
+  } catch (err) {
+    if (err && err.name !== 'AbortError') {
+      setStatus(els.shareStatus, `系统分享失败：${err.message}`, true);
+      els.shareStatus.hidden = false;
+    }
+  }
+}
+
+function initShare() {
+  els.fsShare.addEventListener('click', openShare);
+  els.shareClose.addEventListener('click', closeShare);
+  els.shareDownload.addEventListener('click', downloadShare);
+  els.shareNative.addEventListener('click', nativeShare);
+  els.shareImage.addEventListener('click', () => {
+    if (shareUrl) window.open(shareUrl, '_blank', 'noopener');
+  });
+
+  els.shareModal.addEventListener('click', (event) => {
+    if (event.target === els.shareModal) closeShare();
+  });
+
+  // 弹层打开时先关弹层，别让 Esc 同时退出全屏
+  document.addEventListener('keydown', (event) => {
+    if (event.key === 'Escape' && !els.shareModal.hidden) {
+      event.preventDefault();
+      event.stopPropagation();
+      closeShare();
+    }
+  }, true);
 }
 
 /** 监听容器宽度：优先 ResizeObserver（比 window.resize 准，手机地址栏收起也会触发） */
@@ -389,6 +694,7 @@ async function main() {
 
   initEditor();
   initFullscreen();
+  initShare();
   watchWidth();
   await initPlayer(score);
 }

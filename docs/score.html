@@ -38,12 +38,32 @@
             <button id="fs-play" type="button" disabled>▶ 播放</button>
             <button id="fs-pause" type="button" class="secondary" disabled>⏸ 暂停</button>
             <button id="fs-stop" type="button" class="secondary" disabled>⏹ 停止</button>
+            <button id="fs-share" type="button" class="secondary">分享</button>
             <button id="fs-exit" type="button" class="secondary">✕ 退出全屏</button>
           </div>
         </div>
 
         <!-- 简谱渲染容器（notation.js 会在这里生成 SVG） -->
         <div id="notation-container" class="notation-card nt-score"></div>
+
+        <!-- 分享图预览；放在 stage 内部，原生全屏时也能显示 -->
+        <div id="share-modal" class="share-modal" role="dialog" aria-modal="true"
+             aria-labelledby="share-heading" hidden>
+          <div class="share-sheet">
+            <div class="share-head">
+              <h2 id="share-heading">分享曲谱</h2>
+              <button id="share-close" type="button" class="secondary" aria-label="关闭分享图">✕</button>
+            </div>
+            <div class="share-preview">
+              <p id="share-status" class="status-line" role="status">正在生成图片…</p>
+              <img id="share-image" alt="曲谱分享图" hidden>
+            </div>
+            <div class="share-actions">
+              <button id="share-native" type="button" class="secondary" hidden>系统分享</button>
+              <button id="share-download" type="button" hidden>下载图片</button>
+            </div>
+          </div>
+        </div>
       </div>
 
       <div class="toolbar">
